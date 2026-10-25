@@ -1,0 +1,21 @@
+# Build outputs
+/furious_swine
+/build/
+/cmake-build-*/
+*.o
+
+# Player data and generated screenshots
+/save_progress.cfg
+/custom_siege_*.cfg
+/screenshot_*.bmp
+/local/
+
+# Local tools, credentials, and editor state
+/.agents/
+/.codex/
+/.aws/
+.env
+.env.*
+!.env.example
+.DS_Store
+*~
