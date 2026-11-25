@@ -75,6 +75,7 @@ public:
     float windGustTimer = 0.0f;
     float skyFlashAlpha = 0.0f;
     float stormStrikeTimer = 12.0f;
+    float simTime = 0.0f;  // seconds of simulation since the level loaded
     std::vector<StormCloud> stormClouds;
     std::vector<LightningBolt> lightningBolts;
 
@@ -291,6 +292,7 @@ public:
 
     void updateGame(float frameTime);
 
+    bool persistProgress = true;  // false in tools: never write save_progress.cfg
     void saveProgress();
 
     void loadProgress();

@@ -165,12 +165,17 @@ void SnoutAndSiegeGame::stepPhysics(float dt) {
         if (p.launched) { anyPigLaunched = true; break; }
     }
 
-    if (currentLevelIdx >= 0 && currentLevelIdx < static_cast<int>(levels.size()) && levels[currentLevelIdx].hasStorm) {
+    simTime += dt;
+    // Storm clouds exist exactly when the level being played has a storm
+    // (campaign, Endless wave or editor test play alike).
+    if (!stormClouds.empty()) {
         if (anyPigLaunched) {
             stormStrikeTimer -= dt;
             if (stormStrikeTimer <= 0.0f) {
                 triggerLightningStrike();
-                stormStrikeTimer = 7.0f + ((SDL_GetTicks() % 40) * 0.1f);
+                // Derived from simulated time (not the wall clock) so a given
+                // sequence of shots always plays out identically.
+                stormStrikeTimer = 7.0f + ((static_cast<int>(simTime * 1000.0f) % 40) * 0.1f);
             }
         }
     }

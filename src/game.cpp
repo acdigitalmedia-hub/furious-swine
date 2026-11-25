@@ -280,6 +280,7 @@ void SnoutAndSiegeGame::loadCustomLevelSpec(const LevelSpec& L) {
     windGustTimer = 0.0f;
     skyFlashAlpha = 0.0f;
     stormStrikeTimer = 12.0f;
+    simTime = 0.0f;
     lightningBolts.clear();
     stormClouds.clear();
     if (L.hasStorm) {
@@ -741,6 +742,7 @@ void SnoutAndSiegeGame::updateGame(float frameTime) {
 }
 
 void SnoutAndSiegeGame::saveProgress() {
+    if (!persistProgress) return;
     std::ostringstream out;
     out << "audio.music_muted = " << (assets.musicMuted ? 1 : 0) << "\n";
     out << "audio.sfx_muted = " << (assets.sfxMuted ? 1 : 0) << "\n";

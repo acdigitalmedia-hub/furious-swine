@@ -136,6 +136,21 @@ The self-test runs headlessly and needs no desktop session. It temporarily
 overwrites `save_progress.cfg` and custom level slot 2, and restores both when
 it exits, including when a check fails.
 
+### Level design tool (`level_lab`)
+
+`make tools` builds `level_lab`, a developer tool for checking campaign levels
+(run it from the project root; it never touches your save file):
+
+```bash
+./level_lab stable 1-150          # does each level stand still when untouched?
+./level_lab solve 26              # search shots: pigs needed with perfect aim and
+                                  #   with "skilled" (+-2.5 deg, +-10% power) aim
+./level_lab solve 26 notramp      # same, with trampolines swapped for stone
+./level_lab render 26 out.bmp 1   # picture of level 26 after the solver's first shot
+```
+
+Set `LEVELS_DIR=/some/dir` to test edited copies of the level files.
+
 ## Project Layout
 
 - `src/main.cpp`: entry point, window setup, and the input/event loop.
@@ -156,6 +171,7 @@ it exits, including when a check fails.
 - `src/level_format.h/.cpp`: the level text format shared by campaign levels
   and editor save slots (documented at the top of `level_format.h`).
 - `src/self_test.h/.cpp`: headless self-test suite (`--self-test`).
+- `tools/level_lab.cpp`: level design/analysis tool (`make tools`).
 - `assets/levels/level_001.cfg` … `level_150.cfg`: the campaign (1–140) and
   Secret Vault (141–150) levels as editable text. Restart the game after
   editing; `--self-test` checks every level loads and settles stably.
