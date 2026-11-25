@@ -393,6 +393,10 @@ void icon(SDL_Renderer* ren, UiIcon ic, Vec2 c, float s, SDL_Color col) {
         fillCircle(ren, {c.x - h * 0.18f, c.y - h * 0.12f}, h * 0.18f, {255, 255, 255, 120}, 10);
         drawThickLine(ren, {c.x, c.y - h * 0.5f}, {c.x + h * 0.15f, c.y - h * 0.85f}, lw * 0.7f, col);
         break;
+    case UiIcon::PAUSE:
+        fillRoundRect(ren, {c.x - h * 0.55f, c.y - h * 0.65f, h * 0.38f, h * 1.3f}, h * 0.1f, col);
+        fillRoundRect(ren, {c.x + h * 0.17f, c.y - h * 0.65f, h * 0.38f, h * 1.3f}, h * 0.1f, col);
+        break;
     case UiIcon::CHECK:
         line({c.x - h * 0.55f, c.y}, {c.x - h * 0.15f, c.y + h * 0.45f}, lw * 1.2f);
         line({c.x - h * 0.15f, c.y + h * 0.45f}, {c.x + h * 0.6f, c.y - h * 0.5f}, lw * 1.2f);

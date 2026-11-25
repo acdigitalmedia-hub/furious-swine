@@ -128,6 +128,10 @@ struct PigBody {
     std::vector<Vec2> trail;
     float vortexTimer = -1.0f;
     float drillTimer = -1.0f;
+    // Cartoon squash-and-stretch after impacts (see squashAmount()).
+    float squashAmp = 0.0f;
+    float squashTime = 10.0f;
+    float squashDir = 0.0f;
 };
 
 struct BlockBody {
@@ -167,6 +171,10 @@ struct BirdTarget {
     float maxHp = 60.0f;
     bool defeated = false;
     float blinkTimer = 0.0f;
+    float hurtTimer = 0.0f;        // flinch face after taking damage
+    float squashAmp = 0.0f;
+    float squashTime = 10.0f;
+    float squashDir = 0.0f;
     bool hasHelmet = false;
     float helmetHp = 0.0f;
     float maxHelmetHp = 0.0f;
@@ -311,3 +319,21 @@ struct LevelSpec {
     bool hasTruffle = false;
     Vec2 trufflePos{0.0f, 0.0f};
 };
+
+// Squash-and-stretch: an impact sets an amplitude that wobbles and decays.
+// Positive = squashed along the impact direction.
+inline float squashAmount(float amp, float time) {
+    if (time > 1.0f || amp <= 0.0f) return 0.0f;
+    return amp * std::exp(-time * 7.0f) * std::cos(time * 26.0f);
+}
+
+inline void kickSquash(float& amp, float& time, float& dir, float strength, float angle) {
+    strength = std::min(strength, 0.32f);
+    if (strength < 0.04f) return;
+    if (strength > std::abs(squashAmount(amp, time))) {
+        amp = strength;
+        time = 0.0f;
+        dir = angle;
+    }
+}
+

@@ -697,23 +697,21 @@ void SnoutAndSiegeGame::renderHUD(SDL_Renderer* ren) {
     // Left: navigation.
     float x = 20.0f;
     if (testPlay) {
-        uiButton(ren, "RETURN_TO_EDITOR", {x, top, s, s}, "", pal::SLATE, UiIcon::BACK, false, false, "Back to Architect");
+        uiButton(ren, "PAUSE_GAME", {x, top, s, s}, "", pal::SLATE, UiIcon::PAUSE, false, false, "Pause (Esc)");
         x += s + 10;
         uiButton(ren, "RETRY_LEVEL", {x, top, s, s}, "", pal::ORANGE, UiIcon::RETRY, false, false, "Reset (R)");
         x += s + 18;
         drawLevelLabel(ren, x, "Architect test", customLevel.name, "Slot " + std::to_string(customSlot), pal::TEAL);
     } else if (endless) {
-        uiButton(ren, "BACK_TITLE", {x, top, s, s}, "", pal::SLATE, UiIcon::MENU, false, false, "Main menu");
+        uiButton(ren, "PAUSE_GAME", {x, top, s, s}, "", pal::SLATE, UiIcon::PAUSE, false, false, "Pause (Esc)");
         x += s + 10;
-        uiButton(ren, "RETRY_ENDLESS", {x, top, s, s}, "", pal::ORANGE, UiIcon::RETRY, false, false, "Restart run");
+        uiButton(ren, "RETRY_ENDLESS", {x, top, s, s}, "", pal::ORANGE, UiIcon::RETRY, false, false, "Restart run (R)");
         x += s + 18;
         drawLevelLabel(ren, x, "Endless siege", "Wave " + std::to_string(endlessWave),
                        "Best: wave " + std::to_string(endlessBestWave), pal::ORANGE);
     } else {
         const LevelSpec& L = levels[currentLevelIdx];
-        uiButton(ren, "BACK_TITLE", {x, top, s, s}, "", pal::SLATE, UiIcon::MENU, false, false, "Main menu");
-        x += s + 10;
-        uiButton(ren, "OPEN_LEVEL_SELECT", {x, top, s, s}, "", pal::BLUE, UiIcon::LEVELS, false, false, "Level select");
+        uiButton(ren, "PAUSE_GAME", {x, top, s, s}, "", pal::SLATE, UiIcon::PAUSE, false, false, "Pause (Esc)");
         x += s + 10;
         uiButton(ren, "RETRY_LEVEL", {x, top, s, s}, "", pal::ORANGE, UiIcon::RETRY, false, false, "Retry (R)");
         x += s + 18;
@@ -908,4 +906,46 @@ void SnoutAndSiegeGame::renderResultsCard(SDL_Renderer* ren) {
         uiButton(ren, "OPEN_LEVEL_SELECT", {cx - 196, by, 64, 64}, "", pal::BLUE, UiIcon::LEVELS, false, false, "Level select");
         uiButton(ren, "RETRY_LEVEL", {cx - 116, by, 312, 64}, "Try again", pal::GREEN, UiIcon::RETRY);
     }
+}
+
+void SnoutAndSiegeGame::renderPauseMenu(SDL_Renderer* ren) {
+    using namespace ui;
+    activeButtons.clear();  // the HUD underneath is inert while paused
+    SDL_SetRenderDrawColor(ren, 8, 6, 20, 140);
+    SDL_FRect dim{0, 0, WINDOW_W, WINDOW_H};
+    SDL_RenderFillRectF(ren, &dim);
+
+    bool endless = (screen == ScreenState::ENDLESS);
+    bool testPlay = (screen == ScreenState::EDITOR && isTestPlaying);
+    const float w = 420.0f, h = endless || testPlay ? 380.0f : 440.0f;
+    SDL_FRect card{WINDOW_W * 0.5f - w * 0.5f, 360.0f - h * 0.5f, w, h};
+    panel(ren, card, 26.0f, {40, 44, 78, 245});
+    ribbon(ren, WINDOW_W * 0.5f, card.y + 4.0f, 300.0f, 56.0f, pal::BLUE, "Paused", 34.0f);
+
+    float bx = card.x + 50.0f, bw = w - 100.0f, y = card.y + 62.0f;
+    uiButton(ren, "RESUME_GAME", {bx, y, bw, 66.0f}, "Resume", pal::GREEN, UiIcon::PLAY);
+    y += 82.0f;
+    if (endless) {
+        uiButton(ren, "RETRY_ENDLESS", {bx, y, bw, 56.0f}, "Restart run", pal::ORANGE, UiIcon::RETRY);
+        y += 70.0f;
+    } else {
+        uiButton(ren, "RETRY_LEVEL", {bx, y, bw, 56.0f}, testPlay ? "Reset test" : "Retry level", pal::ORANGE,
+                 UiIcon::RETRY);
+        y += 70.0f;
+    }
+    if (testPlay) {
+        uiButton(ren, "RETURN_TO_EDITOR", {bx, y, bw, 56.0f}, "Back to Architect", pal::TEAL, UiIcon::HAMMER);
+        y += 70.0f;
+    } else {
+        if (!endless) {
+            uiButton(ren, "OPEN_LEVEL_SELECT", {bx, y, bw, 56.0f}, "Level select", pal::BLUE, UiIcon::LEVELS);
+            y += 70.0f;
+        }
+        uiButton(ren, "BACK_TITLE", {bx, y, bw, 56.0f}, "Main menu", pal::SLATE, UiIcon::MENU);
+        y += 70.0f;
+    }
+    float s = 50.0f, gx = WINDOW_W * 0.5f - s - 8.0f;
+    uiButton(ren, "TOGGLE_MUSIC", {gx, y + 4, s, s}, "", pal::SLATE, UiIcon::MUSIC, false, assets.musicMuted, "Music (M)");
+    uiButton(ren, "TOGGLE_SFX", {gx + s + 16, y + 4, s, s}, "", pal::SLATE, UiIcon::SOUND, false, assets.sfxMuted,
+             "Sound (S)");
 }

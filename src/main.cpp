@@ -82,8 +82,18 @@ int main(int argc, char** argv) {
 
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
-            bool isPlayingMode = (game.screen == ScreenState::PLAYING || game.screen == ScreenState::ENDLESS ||
-                                 (game.screen == ScreenState::EDITOR && game.isTestPlaying));
+            const bool inPlayScreen = (game.screen == ScreenState::PLAYING || game.screen == ScreenState::ENDLESS ||
+                                       (game.screen == ScreenState::EDITOR && game.isTestPlaying));
+            // Pause menu / tip cards swallow gameplay input (UI buttons still work).
+            bool isPlayingMode = inPlayScreen && !game.gameplayBlocked();
+            const bool roundOver = game.levelComplete || game.levelFailed || game.endlessGameOver;
+
+            // Auto-pause when the window loses focus (SDL_WINDOWEVENT / FOCUS_LOST).
+            if (ev.type == 0x200 && reinterpret_cast<const uint8_t*>(&ev)[12] == 13 &&
+                isPlayingMode && !roundOver) {
+                game.paused = true;
+                game.draggingSling = false;
+            }
 
             if (ev.type == SDL_QUIT) {
                 running = false;
@@ -187,9 +197,20 @@ int main(int argc, char** argv) {
                 }
 
                 if (sym == SDLK_ESCAPE) {
-                    if (game.screen == ScreenState::TITLE) running = false;
-                    else if (game.screen == ScreenState::EDITOR && game.isTestPlaying) game.returnToEditor();
-                    else game.screen = ScreenState::TITLE;
+                    if (game.screen == ScreenState::TITLE) {
+                        running = false;
+                    } else if (inPlayScreen && game.activeHint >= 0) {
+                        game.dismissHint();
+                    } else if (inPlayScreen && !roundOver) {
+                        game.paused = !game.paused;  // Esc opens/closes the pause menu
+                        game.draggingSling = false;
+                    } else if (game.screen == ScreenState::EDITOR && game.isTestPlaying) {
+                        game.returnToEditor();
+                    } else {
+                        game.screen = ScreenState::TITLE;
+                    }
+                } else if ((sym == SDLK_RETURN || sym == SDLK_SPACE) && inPlayScreen && game.activeHint >= 0) {
+                    game.dismissHint();
                 } else if (sym == SDLK_m) {
                     game.assets.musicMuted = !game.assets.musicMuted;
                     game.saveProgress();

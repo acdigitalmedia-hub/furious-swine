@@ -24,11 +24,24 @@ void drawStarIcon(SDL_Renderer* ren, Vec2 center, float outerR, float innerR,
 // ============================================================================
 // HIGH-RESOLUTION MULTI-FACETED ORIGAMI CHARACTER MODELS (PIGS & TOTEM BIRDS)
 // ============================================================================
+// Facial expression of a character.
+enum class Mood { NORMAL, YELL, OUCH, SCARED };
+
+// Optional pose: expression, world-space gaze, and squash (positive =
+// squashed along squashDir, negative = stretched along it).
+struct CharPose {
+    Mood mood = Mood::NORMAL;
+    Vec2 look{0.0f, 0.0f};   // world direction; zero = default facing
+    float squash = 0.0f;
+    float squashDir = 0.0f;
+};
+
 void renderOrigamiPigGeometry(SDL_Renderer* ren, PigType type, Vec2 pos,
-                              float r, float angle);
+                              float r, float angle, const CharPose& pose = {});
 
 void renderTotemBirdGeometry(SDL_Renderer* ren, BirdClass kind, Vec2 pos,
                              float r, float angle, float hpRatio,
                              bool hasHelmet = false, float helmetHpRatio = 1.0f,
                              bool hasShield = false, float shieldHpRatio = 1.0f,
-                             bool inZeppelin = false, float balloonHpRatio = 1.0f);
+                             bool inZeppelin = false, float balloonHpRatio = 1.0f,
+                             const CharPose& pose = {});

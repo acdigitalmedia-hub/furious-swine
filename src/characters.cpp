@@ -19,11 +19,25 @@ struct Painter {
     Vec2 pos;
     float r, c, s, ow;
 
-    Painter(SDL_Renderer* rr, Vec2 p, float radius, float angle)
-        : ren(rr), pos(p), r(radius), c(std::cos(angle)), s(std::sin(angle)),
-          ow(std::max(1.4f, radius * 0.085f)) {}
+    float sqK = 0.0f;
+    Vec2 sqD{1.0f, 0.0f};
 
-    Vec2 P(float lx, float ly) const { return {pos.x + (lx * c - ly * s) * r, pos.y + (lx * s + ly * c) * r}; }
+    Painter(SDL_Renderer* rr, Vec2 p, float radius, float angle, float squash = 0.0f, float squashDir = 0.0f)
+        : ren(rr), pos(p), r(radius), c(std::cos(angle)), s(std::sin(angle)),
+          ow(std::max(1.4f, radius * 0.085f)), sqK(squash), sqD(std::cos(squashDir), std::sin(squashDir)) {}
+
+    Vec2 P(float lx, float ly) const {
+        Vec2 o((lx * c - ly * s) * r, (lx * s + ly * c) * r);
+        if (sqK != 0.0f) {
+            // Squash along sqD, bulge sideways (roughly volume-preserving).
+            float along = o.x * sqD.x + o.y * sqD.y;
+            Vec2 perp(o.x - sqD.x * along, o.y - sqD.y * along);
+            float ka = 1.0f - sqK, kp = 1.0f + sqK * 0.6f;
+            // Keep the contact side planted: shift towards the impact.
+            o = Vec2(sqD.x * along * ka + perp.x * kp, sqD.y * along * ka + perp.y * kp) + sqD * (sqK * r * 0.9f);
+        }
+        return {pos.x + o.x, pos.y + o.y};
+    }
     Vec2 P(Vec2 l) const { return P(l.x, l.y); }
     Vec2 toWorldDir(Vec2 d) const { return {d.x * c - d.y * s, d.x * s + d.y * c}; }
     Vec2 toLocalDir(Vec2 d) const { return {d.x * c + d.y * s, -d.x * s + d.y * c}; }
@@ -158,6 +172,13 @@ struct Painter {
         ellipse(ix - ir * 0.32f, iy - ir * 0.38f, ir * 0.3f, ir * 0.3f, {255, 255, 255, 255});
         ellipse(ix + ir * 0.3f, iy + ir * 0.32f, ir * 0.13f, ir * 0.13f, {255, 255, 255, 230});
     }
+
+    // Squeezed-shut "> <" eye; dir = +1 points the chevron right.
+    void squint(float ex, float ey, float w, float dir) const {
+        float lw = 0.075f;
+        line({ex - w * dir, ey - w * 0.7f}, {ex + w * dir * 0.6f, ey}, lw, INK);
+        line({ex + w * dir * 0.6f, ey}, {ex - w * dir, ey + w * 0.7f}, lw, INK);
+    }
 };
 
 }  // namespace
@@ -165,8 +186,8 @@ struct Painter {
 // ============================================================================
 // PIGS
 // ============================================================================
-void renderOrigamiPigGeometry(SDL_Renderer* ren, PigType type, Vec2 pos, float r, float angle) {
-    Painter g(ren, pos, r, angle);
+void renderOrigamiPigGeometry(SDL_Renderer* ren, PigType type, Vec2 pos, float r, float angle, const CharPose& pose) {
+    Painter g(ren, pos, r, angle, pose.squash, pose.squashDir);
 
     SDL_Color base, light, dark, snout, snoutDark, earIn, iris;
     switch (type) {
@@ -318,12 +339,26 @@ void renderOrigamiPigGeometry(SDL_Renderer* ren, PigType type, Vec2 pos, float r
 
     // --- Face.
     Vec2 look(1.0f, 0.1f);
-    g.eye(-0.12f, -0.24f, 0.2f, 0.24f, look, iris);
-    g.eye(0.36f, -0.26f, 0.18f, 0.22f, look, iris);
-    // Determined brows.
+    if (pose.look.x != 0.0f || pose.look.y != 0.0f) look = g.toLocalDir(pose.look.normalized());
     SDL_Color browCol = shade(dark, 0.7f);
-    g.line({-0.3f, -0.56f}, {0.04f, -0.48f}, 0.085f, browCol);
-    g.line({0.22f, -0.5f}, {0.52f, -0.58f}, 0.08f, browCol);
+    if (pose.mood == Mood::OUCH) {
+        g.squint(-0.12f, -0.24f, 0.14f, 1.0f);
+        g.squint(0.36f, -0.26f, 0.13f, -1.0f);
+        g.line({-0.3f, -0.5f}, {0.04f, -0.56f}, 0.085f, browCol);
+        g.line({0.22f, -0.58f}, {0.52f, -0.5f}, 0.08f, browCol);
+    } else if (pose.mood == Mood::YELL) {
+        // Wide-eyed battle cry.
+        g.eye(-0.12f, -0.26f, 0.22f, 0.27f, look, iris, 0.75f);
+        g.eye(0.36f, -0.28f, 0.2f, 0.25f, look, iris, 0.75f);
+        g.line({-0.32f, -0.62f}, {0.04f, -0.6f}, 0.085f, browCol);
+        g.line({0.2f, -0.62f}, {0.54f, -0.66f}, 0.08f, browCol);
+    } else {
+        g.eye(-0.12f, -0.24f, 0.2f, 0.24f, look, iris);
+        g.eye(0.36f, -0.26f, 0.18f, 0.22f, look, iris);
+        // Determined brows.
+        g.line({-0.3f, -0.56f}, {0.04f, -0.48f}, 0.085f, browCol);
+        g.line({0.22f, -0.5f}, {0.52f, -0.58f}, 0.08f, browCol);
+    }
     // Rosy cheek.
     g.ellipse(-0.42f, 0.18f, 0.16f, 0.1f, {255, 120, 130, 90});
 
@@ -331,8 +366,15 @@ void renderOrigamiPigGeometry(SDL_Renderer* ren, PigType type, Vec2 pos, float r
     g.ellipseShaded(0.6f, 0.16f, 0.34f, 0.25f, tint(snout, 0.3f), snout, snoutDark);
     g.ellipse(0.48f, 0.17f, 0.055f, 0.1f, shade(snoutDark, 0.55f));
     g.ellipse(0.72f, 0.17f, 0.055f, 0.1f, shade(snoutDark, 0.55f));
-    // Little smile under the snout.
-    g.arc({0.36f, 0.34f}, 0.14f, PI * 0.15f, PI * 0.75f, 0.05f, shade(dark, 0.6f), 6);
+    if (pose.mood == Mood::YELL || pose.mood == Mood::OUCH) {
+        // Open mouth with a tongue.
+        float h = pose.mood == Mood::YELL ? 0.17f : 0.1f;
+        g.ellipseOutlined(0.5f, 0.5f, 0.17f, h, {96, 24, 34, 255});
+        g.ellipse(0.5f, 0.5f + h * 0.45f, 0.11f, h * 0.45f, {240, 110, 120, 255});
+    } else {
+        // Little smile under the snout.
+        g.arc({0.36f, 0.34f}, 0.14f, PI * 0.15f, PI * 0.75f, 0.05f, shade(dark, 0.6f), 6);
+    }
 
     if (type == PigType::TROTTER || type == PigType::BOMB) {
         SDL_Color tusk = (type == PigType::BOMB) ? SDL_Color{226, 232, 240, 255} : SDL_Color{255, 250, 236, 255};
@@ -356,8 +398,8 @@ void renderOrigamiPigGeometry(SDL_Renderer* ren, PigType type, Vec2 pos, float r
 // ============================================================================
 void renderTotemBirdGeometry(SDL_Renderer* ren, BirdClass kind, Vec2 pos, float r, float angle, float hpRatio,
                              bool hasHelmet, float helmetHpRatio, bool hasShield, float shieldHpRatio,
-                             bool inZeppelin, float balloonHpRatio) {
-    Painter g(ren, pos, r, angle);
+                             bool inZeppelin, float balloonHpRatio, const CharPose& pose) {
+    Painter g(ren, pos, r, angle, pose.squash, pose.squashDir);
 
     SDL_Color base, light, dark, wing, belly, beak, beakDark, crest, iris;
     switch (kind) {
@@ -451,22 +493,30 @@ void renderTotemBirdGeometry(SDL_Renderer* ren, BirdClass kind, Vec2 pos, float 
     g.ellipseShaded(0.86f, 0.22f, 0.24f, 0.46f, tint(wing, 0.25f), wing, shade(wing, 0.7f), true, -0.25f);
     g.ellipseShaded(-0.86f, 0.24f, 0.22f, 0.42f, tint(wing, 0.25f), wing, shade(wing, 0.7f), true, 0.25f);
 
-    // Eyes: glaring at the pigs; worried and wide when hurt.
-    bool hurt = hpRatio < 0.38f;
-    float pupil = hpRatio < 0.3f ? 0.7f : 1.0f;
+    // Eyes: glaring at the pigs; worried and wide when hurt or scared.
+    bool scared = pose.mood == Mood::SCARED;
+    bool hurt = hpRatio < 0.38f || scared;
+    float pupil = (hpRatio < 0.3f || scared) ? 0.65f : 1.0f;
     float t = SDL_GetTicks() * 0.001f;
     float phase = std::fmod(t + pos.x * 0.013f, 4.2f);
-    bool blink = phase < 0.12f;
+    bool blink = phase < 0.12f && !scared;
     Vec2 look(-1.0f, 0.05f);
+    if (pose.look.x != 0.0f || pose.look.y != 0.0f) look = g.toLocalDir(pose.look.normalized());
     SDL_Color white = (kind == BirdClass::OWL) ? SDL_Color{255, 236, 140, 255} : SDL_Color{255, 255, 250, 255};
     float ey = -0.36f;
     if (kind == BirdClass::OWL) {
         g.ellipse(-0.32f, ey, 0.32f, 0.32f, shade(light, 1.05f));
         g.ellipse(0.24f, ey, 0.3f, 0.3f, shade(light, 1.05f));
     }
-    if (blink) {
+    if (pose.mood == Mood::OUCH) {
+        g.squint(-0.31f, ey, 0.15f, 1.0f);
+        g.squint(0.23f, ey, 0.14f, -1.0f);
+    } else if (blink) {
         g.line({-0.5f, ey}, {-0.12f, ey}, 0.07f, INK);
         g.line({0.06f, ey}, {0.4f, ey}, 0.07f, INK);
+    } else if (scared) {
+        g.eye(-0.31f, ey, 0.24f, 0.28f, look, iris, pupil, white);
+        g.eye(0.23f, ey, 0.22f, 0.26f, look, iris, pupil, white);
     } else {
         g.eye(-0.31f, ey, 0.21f, 0.24f, look, iris, pupil, white);
         g.eye(0.23f, ey, 0.19f, 0.22f, look, iris, pupil, white);
@@ -475,7 +525,7 @@ void renderTotemBirdGeometry(SDL_Renderer* ren, BirdClass kind, Vec2 pos, float 
     float inner = hurt ? -0.66f : -0.52f, outer = hurt ? -0.58f : -0.7f;
     g.line({-0.56f, outer}, {-0.12f, inner}, 0.1f, INK);
     g.line({0.04f, inner}, {0.44f, outer}, 0.1f, INK);
-    if (hurt) {
+    if (hpRatio < 0.38f) {
         // Bandage.
         g.polyOutlined({{0.38f, -0.84f}, {0.66f, -0.72f}, {0.6f, -0.6f}, {0.32f, -0.72f}}, {246, 226, 180, 255});
         g.line({0.4f, -0.68f}, {0.58f, -0.82f}, 0.035f, {210, 180, 130, 255});

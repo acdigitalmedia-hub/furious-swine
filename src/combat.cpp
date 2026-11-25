@@ -799,6 +799,10 @@ void SnoutAndSiegeGame::damageBird(BirdTarget& t, float dmg) {
         if (dmg <= 2.0f) return;
     }
     t.hp -= dmg;
+    if (dmg > 6.0f) {
+        t.hurtTimer = std::max(t.hurtTimer, 0.45f);
+        kickSquash(t.squashAmp, t.squashTime, t.squashDir, dmg / 220.0f, PI * 0.5f);
+    }
     if (t.hp > 0.0f && dmg > 12.0f) {
         assets.playSound("sound.bird_hurt", clampf(dmg / 60.0f, 0.4f, 1.0f));
     }

@@ -323,6 +323,7 @@ int main(int argc, char** argv) {
     for (unsigned i = 0; i < (cmd == "solve" ? nThreads : 1u); ++i) {
         workers.push_back(std::make_unique<Worker>());
         workers.back()->game.persistProgress = false;
+        workers.back()->game.tutorialHints = false;
         const char* dir = std::getenv("LEVELS_DIR");  // default: assets/levels
         if (!workers.back()->game.initLevels(dir ? dir : "assets/levels")) return 1;
     }
@@ -396,6 +397,7 @@ int main(int argc, char** argv) {
             for (unsigned i = 1; i < nThreads; ++i) {
                 workers.push_back(std::make_unique<Worker>());
                 workers.back()->game.persistProgress = false;
+                workers.back()->game.tutorialHints = false;
                 workers.back()->game.levels = g.levels;
             }
             plan = solve(workers, idx, false, true).shots;

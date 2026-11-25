@@ -388,6 +388,8 @@ void SnoutAndSiegeGame::render(SDL_Renderer* ren) {
     }
 
     renderHUD(ren);
+    if (paused) renderPauseMenu(ren);
+    else if (activeHint >= 0) renderHintCard(ren);
     renderAchievementToast(ren);
 
     // Feature Pack E: Cinematic Slo-Mo Letterboxing Bars & Banner
@@ -658,7 +660,23 @@ void SnoutAndSiegeGame::renderPig(SDL_Renderer* ren, const PigBody& p, Vec2 cam)
                              {screenPos.x + p.radius * 0.65f, screenGroundY + 6},
                              {screenPos.x - p.radius * 0.65f, screenGroundY + 6}}, {12, 15, 22, 105});
     }
-    renderOrigamiPigGeometry(ren, p.type, screenPos, p.radius, p.angle);
+    CharPose pose;
+    float sq = squashAmount(p.squashAmp, p.squashTime);
+    float speed = p.vel.length();
+    if (std::abs(sq) > 0.02f) {
+        pose.squash = sq;
+        pose.squashDir = p.squashDir;
+    } else if (p.launched && speed > 300.0f) {
+        // Stretch along the direction of travel.
+        pose.squash = -std::min(0.14f, (speed - 300.0f) / 5000.0f);
+        pose.squashDir = std::atan2(p.vel.y, p.vel.x);
+    }
+    if (p.launched) {
+        if (p.squashTime < 0.45f && p.squashAmp > 0.1f) pose.mood = Mood::OUCH;
+        else if (speed > 260.0f) pose.mood = Mood::YELL;
+        if (speed > 60.0f) pose.look = p.vel;
+    }
+    renderOrigamiPigGeometry(ren, p.type, screenPos, p.radius, p.angle, pose);
 }
 
 void SnoutAndSiegeGame::renderBird(SDL_Renderer* ren, const BirdTarget& t, Vec2 cam) {
@@ -673,7 +691,28 @@ void SnoutAndSiegeGame::renderBird(SDL_Renderer* ren, const BirdTarget& t, Vec2 
     float helmRatio = (t.maxHelmetHp > 0.0f) ? (t.helmetHp / t.maxHelmetHp) : 1.0f;
     float shieldRatio = (t.maxShieldHp > 0.0f) ? (t.shieldHp / t.maxShieldHp) : 1.0f;
     float balloonRatio = (t.maxBalloonHp > 0.0f) ? (t.balloonHp / t.maxBalloonHp) : 1.0f;
-    renderTotemBirdGeometry(ren, t.kind, screenPos, t.radius, t.angle, t.hp / t.maxHp, t.hasHelmet, helmRatio, t.hasShield, shieldRatio, t.inZeppelin, balloonRatio);
+    CharPose pose;
+    pose.squash = squashAmount(t.squashAmp, t.squashTime);
+    pose.squashDir = t.squashDir;
+    // Watch the nearest flying pig; panic when it gets close.
+    float nearest = 1e9f;
+    for (const auto& p : activePigs) {
+        if (!p.active || !p.launched) continue;
+        Vec2 d = p.pos - t.pos;
+        float dist = d.length();
+        if (dist < nearest && p.vel.length() > 80.0f) {
+            nearest = dist;
+            pose.look = d;
+        }
+    }
+    if (t.hurtTimer > 0.0f) {
+        pose.mood = Mood::OUCH;
+        screenPos.x += std::sin(t.hurtTimer * 90.0f) * t.hurtTimer * 5.0f;  // shudder
+    } else if (nearest < 240.0f) {
+        pose.mood = Mood::SCARED;
+    }
+    renderTotemBirdGeometry(ren, t.kind, screenPos, t.radius, t.angle, t.hp / t.maxHp, t.hasHelmet, helmRatio,
+                            t.hasShield, shieldRatio, t.inZeppelin, balloonRatio, pose);
 }
 
 void SnoutAndSiegeGame::renderGoldenTruffle(SDL_Renderer* ren, Vec2 cam) {

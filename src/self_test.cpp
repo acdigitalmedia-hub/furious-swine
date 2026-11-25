@@ -50,6 +50,7 @@ int runSelfTestAndExportScreenshots(bool exportBmp) {
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
 
     SnoutAndSiegeGame game;
+    game.tutorialHints = false;  // tests drive the simulation directly
     bool assetsOk = game.assets.loadAll(ren);
     bool levelsOk = game.initLevels();
 
@@ -310,6 +311,15 @@ int runSelfTestAndExportScreenshots(bool exportBmp) {
         }
     }
     saveFrame("screenshot_magma_level.bmp");
+
+    // Pause menu and a first-time tip card.
+    game.loadLevel(0);
+    game.paused = true;
+    saveFrame("screenshot_pause_menu.bmp");
+    game.paused = false;
+    game.activeHint = static_cast<int>(HintId::HELMET);
+    saveFrame("screenshot_hint_card.bmp");
+    game.activeHint = -1;
 
     // Verify Simulation Fast-Forward toggle
     game.simSpeed = 2.5f;
@@ -1003,6 +1013,7 @@ int runSelfTestAndExportScreenshots(bool exportBmp) {
             }
         }
         SnoutAndSiegeGame scratch;
+        scratch.tutorialHints = false;
         std::cerr << "[SELF-TEST] (expected) ";
         if (scratch.initLevels("assets/levels-does-not-exist") ||
             static_cast<int>(scratch.levels.size()) != NUM_LEVELS) {
@@ -1029,6 +1040,53 @@ int runSelfTestAndExportScreenshots(bool exportBmp) {
             !c.pendulums[0].spiked) {
             std::cerr << "[SELF-TEST] Legacy-format custom level did not load correctly!\n";
             return 71;
+        }
+    }
+
+    // Unit Test: first-time tips and pause freeze the game; tips are remembered.
+    {
+        SnoutAndSiegeGame g;
+        g.persistProgress = false;
+        g.levels = game.levels;
+        g.tutorialHints = true;
+        g.hintsSeen = 0;
+        g.loadLevel(0);
+        if (g.activeHint != static_cast<int>(HintId::AIM) || !g.gameplayBlocked()) {
+            std::cerr << "[SELF-TEST] Level 1 did not open with the aiming tip! hint=" << g.activeHint << "\n";
+            return 73;
+        }
+        g.activePigs[0].launched = true;
+        g.activePigs[0].vel = {300.0f, -200.0f};
+        Vec2 before = g.activePigs[0].pos;
+        for (int i = 0; i < 30; ++i) g.updateGame(1.0f / 60.0f);
+        if ((g.activePigs[0].pos - before).length() > 0.01f) {
+            std::cerr << "[SELF-TEST] Simulation advanced while a tip card was showing!\n";
+            return 74;
+        }
+        g.dismissHint();
+        g.paused = true;
+        for (int i = 0; i < 30; ++i) g.updateGame(1.0f / 60.0f);
+        if ((g.activePigs[0].pos - before).length() > 0.01f) {
+            std::cerr << "[SELF-TEST] Simulation advanced while paused!\n";
+            return 75;
+        }
+        g.loadLevel(0);
+        if (g.paused || !(g.hintsSeen & (1u << static_cast<int>(HintId::AIM))) ||
+            g.activeHint != static_cast<int>(HintId::ABILITY)) {
+            std::cerr << "[SELF-TEST] Tip progression after dismissing was wrong! hint=" << g.activeHint << "\n";
+            return 76;
+        }
+        // Saves from before tips existed don't re-teach levels already reached.
+        SnoutAndSiegeGame old;
+        old.persistProgress = false;
+        old.levels = game.levels;
+        old.bestStars.fill(0);
+        for (int i = 0; i < 30; ++i) old.bestStars[i] = 3;
+        for (int i = 0; i < old.getHighestUnlockedLevel(); ++i) old.markHintsSeenForLevel(old.levels[i]);
+        old.loadLevel(0);
+        if (old.activeHint != -1) {
+            std::cerr << "[SELF-TEST] Veteran save still showed a beginner tip!\n";
+            return 77;
         }
     }
 

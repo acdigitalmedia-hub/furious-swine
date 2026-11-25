@@ -212,9 +212,10 @@ project root before launching the game.
 - **`M`**: Mute / Unmute music
 - **`S`**: Mute / Unmute sound effects (when not in editor)
 - **`F11`**: Toggle fullscreen
-- **`V`**: Toggle custom BMP sprite textures vs. pure Origami vector geometry
+- **`V`**: Toggle custom BMP sprite textures
 - **`F5`**: Hot-reload `assets/manifest.cfg`, sprites, and sounds
-- **`ESC`**: Return to Title / Quit
+- **`ESC`**: Pause / resume during a level (pause menu: resume, retry, level select, main menu); on menus, go back to the title; on the title, quit. The game also pauses when its window loses focus.
+- **`ENTER` / `SPACE` / `ESC`**: Dismiss a first-time tip card
 - **Fortress Architect Controls**:
   - **`[LMB]` (Canvas)**: Place selected block / bird / pendulum / truffle, or demolish with Eraser
   - **`[G]`**: Toggle 20px Snap-to-Grid

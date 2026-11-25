@@ -233,6 +233,8 @@ BirdTarget SnoutAndSiegeGame::makeBird(BirdClass kind, float x, float y, bool wi
 }
 
 void SnoutAndSiegeGame::loadCustomLevelSpec(const LevelSpec& L) {
+    paused = false;
+    activeHint = -1;
     remainingPigs = L.pigQueue;
     blocks = L.blocks;
     birds = L.birds;
@@ -312,6 +314,7 @@ void SnoutAndSiegeGame::loadLevel(int idx) {
     loadCustomLevelSpec(L);
     levelTruffle.collected = (idx >= 0 && idx < NUM_LEVELS) ? trufflesFound[idx] : false;
     prevLevelBest = (idx >= 0 && idx < NUM_LEVELS) ? bestScores[idx] : 0;
+    chooseHintForLevel(L);
 }
 
 int SnoutAndSiegeGame::getHighestUnlockedLevel() const {
@@ -697,6 +700,7 @@ void SnoutAndSiegeGame::updateGame(float frameTime) {
     updateAchievementToast(frameTime);
     if (screen == ScreenState::PLAYING || (screen == ScreenState::EDITOR && isTestPlaying) || screen == ScreenState::ENDLESS) {
         assets.playMusic("music.battle");
+        if (gameplayBlocked()) return;  // pause menu or tip card is up
         levelTruffle.pulseTime += frameTime;
         if (levelComplete) {
             recordAnimTimer += frameTime;
@@ -732,6 +736,8 @@ void SnoutAndSiegeGame::updateGame(float frameTime) {
         updateCamera(frameTime);
     } else {
         assets.playMusic("music.title");
+        paused = false;
+        activeHint = -1;
         letterboxY = 0.0f;
         sloMoActive = false;
         physicsAccumulator = 0.0f;
@@ -750,6 +756,7 @@ void SnoutAndSiegeGame::saveProgress() {
     out << "achievements.mask = " << getAchievementsMask() << "\n";
     out << "achievements.helmets = " << achievementProgress[static_cast<int>(AchievementId::CAULDRON_CRACKER)] << "\n";
     out << "endless.best_wave = " << endlessBestWave << "\n";
+    out << "hints.seen = " << hintsSeen << "\n";
     for (int i = 0; i < NUM_LEVELS; ++i) {
         out << "level." << (i + 1) << ".stars = " << bestStars[i] << "\n";
         out << "level." << (i + 1) << ".score = " << bestScores[i] << "\n";
@@ -764,7 +771,24 @@ void SnoutAndSiegeGame::loadProgress() {
     std::ifstream in("save_progress.cfg");
     if (!in.good()) return;
     std::string line;
+    bool sawHints = false;
+    struct MarkOldHints {
+        SnoutAndSiegeGame& g;
+        bool& saw;
+        ~MarkOldHints() {
+            // Saves from before tips existed: don't re-teach what the player
+            // has already played through.
+            if (saw) return;
+            int reached = g.getHighestUnlockedLevel();
+            for (int i = 0; i < reached && i < static_cast<int>(g.levels.size()); ++i) g.markHintsSeenForLevel(g.levels[i]);
+        }
+    } markOld{*this, sawHints};
     while (std::getline(in, line)) {
+        if (line.rfind("hints.seen = ", 0) == 0) {
+            hintsSeen = static_cast<uint32_t>(std::strtoul(line.substr(13).c_str(), nullptr, 10));
+            sawHints = true;
+            continue;
+        }
         if (line.rfind("audio.music_muted = ", 0) == 0) {
             assets.musicMuted = (std::atoi(line.substr(20).c_str()) != 0);
             continue;
@@ -815,6 +839,19 @@ bool SnoutAndSiegeGame::handleButtonClick(const std::string& id, bool& running) 
         int nextLvl = getHighestUnlockedLevel();
         loadLevel(nextLvl);
         screen = ScreenState::PLAYING;
+        return true;
+    }
+    if (id == "PAUSE_GAME") {
+        paused = true;
+        draggingSling = false;
+        return true;
+    }
+    if (id == "RESUME_GAME") {
+        paused = false;
+        return true;
+    }
+    if (id == "DISMISS_HINT") {
+        dismissHint();
         return true;
     }
     if (id == "TOGGLE_SPEED") {

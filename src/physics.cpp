@@ -180,6 +180,12 @@ void SnoutAndSiegeGame::stepPhysics(float dt) {
         }
     }
 
+    for (auto& p : activePigs) p.squashTime += dt;
+    for (auto& t : birds) {
+        t.squashTime += dt;
+        t.hurtTimer = std::max(0.0f, t.hurtTimer - dt);
+    }
+
     const int subSteps = 10;
     float subDt = dt / subSteps;
 
@@ -267,6 +273,7 @@ void SnoutAndSiegeGame::stepPhysics(float dt) {
             if (p.pos.y + p.radius > GROUND_Y) {
                 p.pos.y = GROUND_Y - p.radius;
                 if (p.vel.y > 0.0f) {
+                    kickSquash(p.squashAmp, p.squashTime, p.squashDir, p.vel.y / 1100.0f, PI * 0.5f);
                     p.vel.y = -p.vel.y * p.restitution;
                     p.vel.x *= 0.80f;
                     p.angVel = p.vel.x / std::max(10.0f, p.radius);
@@ -304,6 +311,8 @@ void SnoutAndSiegeGame::stepPhysics(float dt) {
                         p.vel -= imp * p.invMass;
                         t.vel += imp * t.invMass;
                         damageBird(t, std::abs(j) * 0.28f);
+                        kickSquash(p.squashAmp, p.squashTime, p.squashDir, -vn / 1100.0f, std::atan2(n.y, n.x));
+                        kickSquash(t.squashAmp, t.squashTime, t.squashDir, -vn / 900.0f, std::atan2(-n.y, -n.x));
                         addTrauma(0.32f);
                         if (p.type == PigType::BOMB && p.fuseTimer < 0.0f && !p.exploded) {
                             p.fuseTimer = 0.45f;
@@ -809,6 +818,7 @@ void SnoutAndSiegeGame::resolveCircleOBB(PigBody& p, BlockBody& b) {
     Vec2 rv = p.vel - vB;
     float vn = rv.dot(worldN);
     if (vn >= 0.0f) return;
+    kickSquash(p.squashAmp, p.squashTime, p.squashDir, -vn / 1100.0f, std::atan2(-worldN.y, -worldN.x));
 
     float rnB = cross(rB, worldN);
     float denom = p.invMass + b.invMass + (rnB * rnB) * b.invInertia;

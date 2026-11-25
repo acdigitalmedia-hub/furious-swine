@@ -34,6 +34,12 @@ inline const char* chapterName(int ch) {
     return kNames[std::clamp(ch, 0, NUM_CHAPTERS)];
 }
 
+// First-time tips (bit index into SnoutAndSiegeGame::hintsSeen).
+enum class HintId : int {
+    AIM, ABILITY, PIG_TURBO, PIG_SPLIT, PIG_BOMB, PIG_GLIDER, PIG_GRAVITON, PIG_DRILL,
+    WIND, HELMET, SHIELD, ZEPPELIN, TNT, ICE, TRAMPOLINE, MAGMA, STORM, PENDULUM, TRUFFLE, COUNT
+};
+
 enum class ScreenState {
     TITLE = 0,
     LEVEL_SELECT = 1,
@@ -204,6 +210,18 @@ public:
     LevelSpec customLevel;
     LevelSpec customBackup;
     bool isTestPlaying = false;
+
+    // Pause menu and first-time tips both freeze the simulation.
+    bool paused = false;
+    int activeHint = -1;             // HintId shown right now, or -1
+    uint32_t hintsSeen = 0;          // bitmask of HintId already shown
+    bool tutorialHints = true;       // tools/tests turn tips off
+    bool gameplayBlocked() const { return paused || activeHint >= 0; }
+    void chooseHintForLevel(const LevelSpec& L);
+    void markHintsSeenForLevel(const LevelSpec& L);
+    void dismissHint();
+    void renderHintCard(SDL_Renderer* ren);
+    void renderPauseMenu(SDL_Renderer* ren);
     int customSlot = 1;
 
     // Feature Pack E: Endless Siege Gauntlet Mode
