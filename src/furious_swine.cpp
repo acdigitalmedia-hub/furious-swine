@@ -21,6 +21,7 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -310,6 +311,7 @@ struct X11Fallback {
         while (pXPending(display) > 0) {
             alignas(8) unsigned char xev[192]{};
             pXNextEvent(display, xev);
+            std::memset(ev, 0, sizeof(*ev));
             int type = *reinterpret_cast<int*>(xev);
             if (type == 2) { // KeyPress
                 unsigned long ks = pXLookupKeysym(xev, 0);
@@ -1930,11 +1932,88 @@ class AssetPipeline {
 public:
     std::map<std::string, std::string> manifest;
     std::map<std::string, SDL_Texture*> textures;
+    // Decoded audio, always converted to the mixer's native format
+    // (44.1 kHz, mono, signed 16-bit) so user-supplied WAVs of any common
+    // layout play at the correct pitch and speed.
     struct WavSound {
-        SDL_AudioSpec spec{};
-        uint8_t* buffer = nullptr;
-        uint32_t length = 0;
+        std::vector<int16_t> pcm;
     };
+    static constexpr int MIXER_RATE = 44100;
+
+    // Converts an SDL-decoded WAV buffer (U8 / S16 / S32 / F32, any channel
+    // count, any sample rate) to 44.1 kHz mono S16. Returns false on an
+    // unsupported format.
+    static bool convertToMixerFormat(const SDL_AudioSpec& spec, const uint8_t* buf, uint32_t len,
+                                     std::vector<int16_t>& out) {
+        out.clear();
+        if (!buf || len == 0) return false;
+        uint16_t fmt = spec.format ? spec.format : 0x8010; // fallback loader leaves format unset
+        int channels = spec.channels ? spec.channels : 1;
+        int rate = spec.freq > 0 ? spec.freq : MIXER_RATE;
+        int bytesPerSample;
+        switch (fmt) {
+            case 0x0008: bytesPerSample = 1; break; // AUDIO_U8
+            case 0x8010: bytesPerSample = 2; break; // AUDIO_S16LSB
+            case 0x8020: bytesPerSample = 4; break; // AUDIO_S32LSB
+            case 0x8120: bytesPerSample = 4; break; // AUDIO_F32LSB
+            default: return false;
+        }
+        size_t frameBytes = static_cast<size_t>(bytesPerSample) * channels;
+        size_t frames = len / frameBytes;
+        if (frames == 0) return false;
+
+        auto sampleAt = [&](size_t frame, int ch) -> float {
+            const uint8_t* p = buf + frame * frameBytes + static_cast<size_t>(ch) * bytesPerSample;
+            switch (fmt) {
+                case 0x0008: return (static_cast<int>(p[0]) - 128) / 128.0f;
+                case 0x8010: { int16_t v; std::memcpy(&v, p, 2); return v / 32768.0f; }
+                case 0x8020: { int32_t v; std::memcpy(&v, p, 4); return static_cast<float>(v / 2147483648.0); }
+                default:     { float v; std::memcpy(&v, p, 4); return std::isfinite(v) ? v : 0.0f; }
+            }
+        };
+        auto monoAt = [&](size_t frame) -> float {
+            float sum = 0.0f;
+            for (int c = 0; c < channels; ++c) sum += sampleAt(frame, c);
+            return sum / channels;
+        };
+
+        size_t outFrames = (rate == MIXER_RATE) ? frames
+                         : static_cast<size_t>(static_cast<double>(frames) * MIXER_RATE / rate);
+        if (outFrames == 0) return false;
+        out.resize(outFrames);
+        double step = static_cast<double>(rate) / MIXER_RATE;
+        for (size_t i = 0; i < outFrames; ++i) {
+            float v;
+            if (rate == MIXER_RATE) {
+                v = monoAt(i);
+            } else {
+                double srcPos = i * step;
+                size_t i0 = static_cast<size_t>(srcPos);
+                size_t i1 = std::min(i0 + 1, frames - 1);
+                float frac = static_cast<float>(srcPos - i0);
+                v = monoAt(i0) * (1.0f - frac) + monoAt(i1) * frac;
+            }
+            out[i] = static_cast<int16_t>(clampf(v, -1.0f, 1.0f) * 32767.0f);
+        }
+        return true;
+    }
+
+    // Loads a WAV file from disk and converts it. Returns false on failure.
+    static bool loadWavFile(const std::string& path, WavSound& ws) {
+        SDL_RWops* rw = SDL_RWFromFile(path.c_str(), "rb");
+        if (!rw) return false;
+        SDL_AudioSpec spec{};
+        uint8_t* raw = nullptr;
+        uint32_t rawLen = 0;
+        if (!SDL_LoadWAV_RW(rw, 1, &spec, &raw, &rawLen)) return false;
+        bool ok = convertToMixerFormat(spec, raw, rawLen, ws.pcm);
+        SDL_FreeWAV(raw);
+        if (!ok) {
+            std::cerr << "[ASSETS] Unsupported WAV format in " << path << " (format 0x"
+                      << std::hex << spec.format << std::dec << ")\n";
+        }
+        return ok && ws.pcm.size() >= 2;
+    }
     std::map<std::string, WavSound> sounds;
     std::map<std::string, WavSound> musicTracks;
     std::string currentMusicKey;
@@ -1992,9 +2071,9 @@ public:
         size_t bgmTotal = 0;
         if (!pipe->musicMuted && pipe->musicEnabled && !pipe->currentMusicKey.empty()) {
             auto it = pipe->musicTracks.find(pipe->currentMusicKey);
-            if (it != pipe->musicTracks.end() && it->second.buffer && it->second.length >= 2) {
-                bgmBuf = reinterpret_cast<const int16_t*>(it->second.buffer);
-                bgmTotal = it->second.length / sizeof(int16_t);
+            if (it != pipe->musicTracks.end() && it->second.pcm.size() >= 2) {
+                bgmBuf = it->second.pcm.data();
+                bgmTotal = it->second.pcm.size();
             }
         }
 
@@ -2070,7 +2149,7 @@ public:
     void playSound(const std::string& key, float gain = 1.0f) {
         if (!audioEnabled || sfxMuted || audioDevice == 0) return;
         auto it = sounds.find(key);
-        if (it == sounds.end() || !it->second.buffer || it->second.length < 2) return;
+        if (it == sounds.end() || it->second.pcm.size() < 2) return;
 
         uint32_t now = SDL_GetTicks();
         int prio = getSoundPriority(key);
@@ -2081,8 +2160,8 @@ public:
         }
         if (prio == 1) lastHitSoundTicks = now;
 
-        const int16_t* pcm = reinterpret_cast<const int16_t*>(it->second.buffer);
-        size_t len = it->second.length / sizeof(int16_t);
+        const int16_t* pcm = it->second.pcm.data();
+        size_t len = it->second.pcm.size();
 
         if (audioDevice != 0) SDL_LockAudioDevice(audioDevice);
         {
@@ -3385,13 +3464,7 @@ public:
             }
             bgmCursor = 0;
             currentMusicKey.clear();
-            for (auto& kv : sounds) {
-                if (kv.second.buffer) SDL_FreeWAV(kv.second.buffer);
-            }
             sounds.clear();
-            for (auto& kv : musicTracks) {
-                if (kv.second.buffer) SDL_FreeWAV(kv.second.buffer);
-            }
             musicTracks.clear();
         }
         if (audioDevice != 0) SDL_UnlockAudioDevice(audioDevice);
@@ -3415,21 +3488,15 @@ public:
                     }
                 }
             } else if (kv.first.rfind("sound.", 0) == 0) {
-                SDL_RWops* rw = SDL_RWFromFile(kv.second.c_str(), "rb");
-                if (rw) {
-                    WavSound ws{};
-                    if (SDL_LoadWAV_RW(rw, 1, &ws.spec, &ws.buffer, &ws.length)) {
-                        sounds[kv.first] = ws;
-                        loadedSoundCount++;
-                    }
+                WavSound ws{};
+                if (loadWavFile(kv.second, ws)) {
+                    sounds[kv.first] = std::move(ws);
+                    loadedSoundCount++;
                 }
             } else if (kv.first.rfind("music.", 0) == 0) {
-                SDL_RWops* rw = SDL_RWFromFile(kv.second.c_str(), "rb");
-                if (rw) {
-                    WavSound ws{};
-                    if (SDL_LoadWAV_RW(rw, 1, &ws.spec, &ws.buffer, &ws.length)) {
-                        musicTracks[kv.first] = ws;
-                    }
+                WavSound ws{};
+                if (loadWavFile(kv.second, ws)) {
+                    musicTracks[kv.first] = std::move(ws);
                 }
             }
         }
@@ -3465,13 +3532,7 @@ public:
             if (kv.second) SDL_DestroyTexture(kv.second);
         }
         textures.clear();
-        for (auto& kv : sounds) {
-            if (kv.second.buffer) SDL_FreeWAV(kv.second.buffer);
-        }
         sounds.clear();
-        for (auto& kv : musicTracks) {
-            if (kv.second.buffer) SDL_FreeWAV(kv.second.buffer);
-        }
         musicTracks.clear();
     }
 };
@@ -3690,7 +3751,12 @@ public:
     void collectGoldenTruffle() {
         if (!levelTruffle.exists || levelTruffle.collected) return;
         levelTruffle.collected = true;
-        if (currentLevelIdx >= 0 && currentLevelIdx < NUM_LEVELS) {
+        // Only campaign/vault truffles count toward progress. Endless waves and
+        // editor test plays reuse whatever currentLevelIdx was last loaded, so
+        // recording them would credit (and unlock vaults for) the wrong level.
+        const bool countsForProgress = (screen == ScreenState::PLAYING) &&
+                                       currentLevelIdx >= 0 && currentLevelIdx < NUM_LEVELS;
+        if (countsForProgress) {
             trufflesFound[currentLevelIdx] = true;
         }
 
@@ -3716,6 +3782,7 @@ public:
         addTrauma(0.32f);
         score += 2500;
         floatScores.push_back({levelTruffle.pos - camPos, "+2500 GOLDEN TRUFFLE!", {255, 220, 75, 255}, 1.8f, 1.8f});
+        if (!countsForProgress) return;
 
         unlockAchievement(AchievementId::TRUFFLE_SNIFFER);
         if (getTrufflesFoundCount() >= 20) {
@@ -3846,48 +3913,51 @@ public:
         return b;
     }
 
+    // Single source of truth for bird stats, shared by campaign levels, the
+    // Fortress Architect editor, saved custom levels, and Endless mode.
+    static BirdTarget makeBird(BirdClass kind, float x, float y, bool withHelmet = false, bool withShield = false, bool withZeppelin = false) {
+        BirdTarget t{};
+        t.kind = kind;
+        t.pos = {x, y};
+        t.radius = (kind == BirdClass::CONDOR) ? 28.0f :
+                   (kind == BirdClass::HERON ? 26.0f :
+                   (kind == BirdClass::FALCON ? 23.0f :
+                   (kind == BirdClass::OWL ? 23.0f : 20.0f)));
+        t.maxHp = (kind == BirdClass::CONDOR) ? 240.0f :
+                  (kind == BirdClass::HERON ? 210.0f :
+                  (kind == BirdClass::FALCON ? 150.0f :
+                  (kind == BirdClass::OWL ? 140.0f : 78.0f)));
+        t.hp = t.maxHp;
+        t.mass = (kind == BirdClass::CONDOR) ? 2.8f :
+                 (kind == BirdClass::HERON ? 2.4f :
+                 (kind == BirdClass::FALCON ? 2.0f :
+                 (kind == BirdClass::OWL ? 1.8f : 1.4f)));
+        t.invMass = 1.0f / t.mass;
+        t.hasHelmet = withHelmet;
+        if (withHelmet) {
+            t.helmetHp = (kind == BirdClass::CONDOR) ? 160.0f :
+                         (kind == BirdClass::HERON ? 140.0f :
+                         (kind == BirdClass::FALCON ? 110.0f :
+                         (kind == BirdClass::OWL ? 100.0f : 70.0f)));
+            t.maxHelmetHp = t.helmetHp;
+        }
+        t.hasShield = withShield || (kind == BirdClass::FALCON);
+        if (t.hasShield) {
+            t.shieldHp = 120.0f;
+            t.maxShieldHp = 120.0f;
+        }
+        t.inZeppelin = withZeppelin || (kind == BirdClass::CONDOR);
+        if (t.inZeppelin) {
+            t.balloonHp = 70.0f;
+            t.maxBalloonHp = 70.0f;
+        }
+        return t;
+    }
+
     void initLevels() {
         levels.clear();
         levels.reserve(NUM_LEVELS);
 
-        auto makeBird = [](BirdClass kind, float x, float y, bool withHelmet = false, bool withShield = false, bool withZeppelin = false) -> BirdTarget {
-            BirdTarget t{};
-            t.kind = kind;
-            t.pos = {x, y};
-            t.radius = (kind == BirdClass::CONDOR) ? 28.0f :
-                       (kind == BirdClass::HERON ? 26.0f :
-                       (kind == BirdClass::FALCON ? 23.0f :
-                       (kind == BirdClass::OWL ? 23.0f : 20.0f)));
-            t.maxHp = (kind == BirdClass::CONDOR) ? 240.0f :
-                      (kind == BirdClass::HERON ? 210.0f :
-                      (kind == BirdClass::FALCON ? 150.0f :
-                      (kind == BirdClass::OWL ? 140.0f : 78.0f)));
-            t.hp = t.maxHp;
-            t.mass = (kind == BirdClass::CONDOR) ? 2.8f :
-                     (kind == BirdClass::HERON ? 2.4f :
-                     (kind == BirdClass::FALCON ? 2.0f :
-                     (kind == BirdClass::OWL ? 1.8f : 1.4f)));
-            t.invMass = 1.0f / t.mass;
-            t.hasHelmet = withHelmet;
-            if (withHelmet) {
-                t.helmetHp = (kind == BirdClass::CONDOR) ? 160.0f :
-                             (kind == BirdClass::HERON ? 140.0f :
-                             (kind == BirdClass::FALCON ? 110.0f :
-                             (kind == BirdClass::OWL ? 100.0f : 70.0f)));
-                t.maxHelmetHp = t.helmetHp;
-            }
-            t.hasShield = withShield || (kind == BirdClass::FALCON);
-            if (t.hasShield) {
-                t.shieldHp = 120.0f;
-                t.maxShieldHp = 120.0f;
-            }
-            t.inZeppelin = withZeppelin || (kind == BirdClass::CONDOR);
-            if (t.inZeppelin) {
-                t.balloonHp = 70.0f;
-                t.maxBalloonHp = 70.0f;
-            }
-            return t;
-        };
 
         auto birdRad = [](BirdClass k) -> float {
             return (k == BirdClass::CONDOR) ? 28.0f :
@@ -6427,8 +6497,7 @@ public:
     void saveCustomLevel(int slot) {
         if (slot < 1 || slot > 3) slot = 1;
         std::string filename = "custom_siege_" + std::to_string(slot) + ".cfg";
-        std::ofstream out(filename);
-        if (!out.good()) return;
+        std::ostringstream out;
         out << "theme = " << editorTheme << "\n";
         out << "wind = " << editorWind << "\n";
         out << "storm = " << (editorStorm ? 1 : 0) << "\n";
@@ -6444,8 +6513,29 @@ public:
         for (const auto& p : customLevel.pendulums) {
             out << "pendulum = " << p.anchor.x << " " << p.anchor.y << " " << p.length << " " << (p.spiked ? 1 : 0) << "\n";
         }
+        if (!writeFileAtomically(filename, out.str())) {
+            floatScores.push_back({{WINDOW_W * 0.5f, 160.0f}, "SAVE FAILED!", {255, 120, 120, 255}, 1.6f, 1.6f});
+            return;
+        }
         floatScores.push_back({{WINDOW_W * 0.5f, 160.0f}, "SIEGE SLOT " + std::to_string(slot) + " SAVED!", {140, 240, 180, 255}, 1.4f, 1.4f});
         assets.playSound("sound.ui_click");
+    }
+
+    static bool isSaneCoord(float v) {
+        return std::isfinite(v) && v > -2000.0f && v < 4000.0f;
+    }
+
+    // Pendulum as placed by the Fortress Architect; also used when reloading a
+    // saved custom level so a reloaded pendulum matches the one that was placed.
+    static PendulumBody makeEditorPendulum(float ax, float ay, bool spiked, float length = 85.0f) {
+        PendulumBody pb{};
+        pb.anchor = {ax, ay};
+        pb.length = length;
+        pb.angle = 0.40f;
+        pb.radius = 18.0f;
+        pb.mass = 8.0f;
+        pb.spiked = spiked;
+        return pb;
     }
 
     void loadCustomLevel(int slot) {
@@ -6462,9 +6552,10 @@ public:
             std::string line;
             while (std::getline(in, line)) {
                 if (line.rfind("theme = ", 0) == 0) {
-                    editorTheme = std::atoi(line.substr(8).c_str());
+                    editorTheme = std::clamp(std::atoi(line.substr(8).c_str()), 0, 5);
                 } else if (line.rfind("wind = ", 0) == 0) {
-                    editorWind = std::atof(line.substr(7).c_str());
+                    float w = static_cast<float>(std::atof(line.substr(7).c_str()));
+                    editorWind = std::isfinite(w) ? clampf(w, -120.0f, 120.0f) : 0.0f;
                     customLevel.wind = editorWind;
                 } else if (line.rfind("storm = ", 0) == 0) {
                     editorStorm = (std::atoi(line.substr(8).c_str()) != 0);
@@ -6472,38 +6563,35 @@ public:
                 } else if (line.rfind("truffle.exists = ", 0) == 0) {
                     customLevel.hasTruffle = (std::atoi(line.substr(17).c_str()) != 0);
                 } else if (line.rfind("truffle.x = ", 0) == 0) {
-                    customLevel.trufflePos.x = std::atof(line.substr(12).c_str());
+                    float v = static_cast<float>(std::atof(line.substr(12).c_str()));
+                    if (isSaneCoord(v)) customLevel.trufflePos.x = v;
                 } else if (line.rfind("truffle.y = ", 0) == 0) {
-                    customLevel.trufflePos.y = std::atof(line.substr(12).c_str());
+                    float v = static_cast<float>(std::atof(line.substr(12).c_str()));
+                    if (isSaneCoord(v)) customLevel.trufflePos.y = v;
                 } else if (line.rfind("block = ", 0) == 0) {
                     std::stringstream ss(line.substr(8));
                     int matInt; float bx, by, bw, bh;
-                    if (ss >> matInt >> bx >> by >> bw >> bh) {
+                    if ((ss >> matInt >> bx >> by >> bw >> bh) &&
+                        matInt >= 0 && matInt <= static_cast<int>(MaterialTier::MAGMA_VENT) &&
+                        isSaneCoord(bx) && isSaneCoord(by) &&
+                        std::isfinite(bw) && std::isfinite(bh) &&
+                        bw >= 4.0f && bh >= 4.0f && bw <= 1000.0f && bh <= 1000.0f) {
                         customLevel.blocks.push_back(makeBlock(static_cast<MaterialTier>(matInt), bx, by, bw, bh));
                     }
                 } else if (line.rfind("bird = ", 0) == 0) {
                     std::stringstream ss(line.substr(7));
                     int kInt, helmInt; float tx, ty;
-                    if (ss >> kInt >> tx >> ty >> helmInt) {
-                        BirdTarget bt{};
-                        bt.kind = static_cast<BirdClass>(kInt);
-                        bt.pos = {tx, ty};
-                        bt.radius = (bt.kind == BirdClass::HERON) ? 23.0f : ((bt.kind == BirdClass::OWL) ? 21.0f : 18.0f);
-                        bt.hp = (bt.kind == BirdClass::HERON) ? 160.0f : ((bt.kind == BirdClass::OWL) ? 110.0f : 60.0f);
-                        bt.maxHp = bt.hp;
-                        bt.hasHelmet = (helmInt != 0);
-                        if (bt.hasHelmet) { bt.helmetHp = 100.0f; bt.maxHelmetHp = 100.0f; }
-                        customLevel.birds.push_back(bt);
+                    if ((ss >> kInt >> tx >> ty >> helmInt) &&
+                        kInt >= 0 && kInt <= static_cast<int>(BirdClass::CONDOR) &&
+                        isSaneCoord(tx) && isSaneCoord(ty)) {
+                        customLevel.birds.push_back(makeBird(static_cast<BirdClass>(kInt), tx, ty, helmInt != 0));
                     }
                 } else if (line.rfind("pendulum = ", 0) == 0) {
                     std::stringstream ss(line.substr(11));
                     float ax, ay, len; int spk;
-                    if (ss >> ax >> ay >> len >> spk) {
-                        PendulumBody pb{};
-                        pb.anchor = {ax, ay};
-                        pb.length = len;
-                        pb.spiked = (spk != 0);
-                        customLevel.pendulums.push_back(pb);
+                    if ((ss >> ax >> ay >> len >> spk) &&
+                        isSaneCoord(ax) && isSaneCoord(ay) && std::isfinite(len) && len > 10.0f && len < 1000.0f) {
+                        customLevel.pendulums.push_back(makeEditorPendulum(ax, ay, spk != 0, len));
                     }
                 }
             }
@@ -6518,17 +6606,8 @@ public:
             customLevel.blocks.push_back(makeBlock(MaterialTier::TIMBER, 835.0f, GROUND_Y - 55.0f, 20.0f, 80.0f));
             customLevel.blocks.push_back(makeBlock(MaterialTier::TIMBER, 780.0f, GROUND_Y - 105.0f, 150.0f, 22.0f));
 
-            BirdTarget bt1{};
-            bt1.kind = BirdClass::TOUCAN;
-            bt1.pos = {780.0f, GROUND_Y - 38.0f};
-            bt1.radius = 18.0f; bt1.hp = 60.0f; bt1.maxHp = 60.0f;
-            customLevel.birds.push_back(bt1);
-
-            BirdTarget bt2{};
-            bt2.kind = BirdClass::OWL;
-            bt2.pos = {780.0f, GROUND_Y - 135.0f};
-            bt2.radius = 21.0f; bt2.hp = 110.0f; bt2.maxHp = 110.0f;
-            customLevel.birds.push_back(bt2);
+            customLevel.birds.push_back(makeBird(BirdClass::TOUCAN, 780.0f, GROUND_Y - 22.0f - 20.0f));
+            customLevel.birds.push_back(makeBird(BirdClass::OWL, 780.0f, GROUND_Y - 116.0f - 23.0f));
 
             customLevel.hasTruffle = true;
             customLevel.trufflePos = {780.0f, GROUND_Y - 175.0f};
@@ -6550,6 +6629,10 @@ public:
     }
 
     void startEditorTestPlay() {
+        // The wind and storm buttons only edit editorWind / editorStorm, so
+        // apply them to the level being test-played.
+        customLevel.wind = editorWind;
+        customLevel.hasStorm = editorStorm;
         customBackup = customLevel;
         customLevel.pigQueue = {PigType::TROTTER, PigType::TURBO, PigType::SPLIT, PigType::BOMB, PigType::GLIDER, PigType::GRAVITON, PigType::DRILL};
         customLevel.name = "CUSTOM SIEGE PLAYTEST";
@@ -6615,36 +6698,13 @@ public:
                 if (f == 0 && wave >= 4 && (b % 2 == 1)) {
                     spec.blocks.push_back(makeBlock(MaterialTier::TNT, bayX, curY - 18.0f, 36.0f, 36.0f));
                 } else {
-                    BirdTarget bt{};
-                    bt.kind = (wave >= 9 && f >= 2) ? BirdClass::CONDOR :
-                              ((wave >= 6 && f >= 1) ? BirdClass::FALCON :
-                              ((f >= 2 || wave >= 8) ? BirdClass::HERON :
-                              ((f >= 1 || wave >= 4) ? BirdClass::OWL : BirdClass::TOUCAN)));
-                    bt.radius = (bt.kind == BirdClass::CONDOR) ? 28.0f :
-                                ((bt.kind == BirdClass::HERON) ? 26.0f :
-                                ((bt.kind == BirdClass::FALCON) ? 23.0f :
-                                ((bt.kind == BirdClass::OWL) ? 23.0f : 20.0f)));
-                    bt.hp = (bt.kind == BirdClass::CONDOR) ? 240.0f :
-                            ((bt.kind == BirdClass::HERON) ? 210.0f :
-                            ((bt.kind == BirdClass::FALCON) ? 150.0f :
-                            ((bt.kind == BirdClass::OWL) ? 140.0f : 78.0f)));
-                    bt.maxHp = bt.hp;
-                    bt.pos = {bayX, curY - bt.radius - 2.0f};
-                    if (bt.kind == BirdClass::FALCON) {
-                        bt.hasShield = true;
-                        bt.shieldHp = 120.0f;
-                        bt.maxShieldHp = 120.0f;
-                    }
-                    if (bt.kind == BirdClass::CONDOR) {
-                        bt.inZeppelin = true;
-                        bt.balloonHp = 70.0f;
-                        bt.maxBalloonHp = 70.0f;
-                    }
-                    if (wave >= 6 && (f == floors - 1 || wave >= 10) && bt.kind != BirdClass::CONDOR) {
-                        bt.hasHelmet = true;
-                        bt.helmetHp = 100.0f;
-                        bt.maxHelmetHp = 100.0f;
-                    }
+                    BirdClass kind = (wave >= 9 && f >= 2) ? BirdClass::CONDOR :
+                                     ((wave >= 6 && f >= 1) ? BirdClass::FALCON :
+                                     ((f >= 2 || wave >= 8) ? BirdClass::HERON :
+                                     ((f >= 1 || wave >= 4) ? BirdClass::OWL : BirdClass::TOUCAN)));
+                    bool helmet = wave >= 6 && (f == floors - 1 || wave >= 10) && kind != BirdClass::CONDOR;
+                    BirdTarget bt = makeBird(kind, bayX, 0.0f, helmet);
+                    bt.pos.y = curY - bt.radius - 2.0f;
                     spec.birds.push_back(bt);
                 }
 
@@ -6828,17 +6888,21 @@ public:
         } else if (mainPig.type == PigType::SPLIT) {
             float baseAngle = std::atan2(mainPig.vel.y, mainPig.vel.x);
             float speed = std::max(520.0f, mainPig.vel.length() * 1.08f);
-            float offsets[2] = {-0.23f, +0.23f};
+            // Copy the parent before growing activePigs: push_back may reallocate,
+            // which would leave the mainPig reference dangling.
+            const PigBody parent = mainPig;
+            const float offsets[2] = {-0.23f, +0.23f};
+            activePigs.reserve(activePigs.size() + 2);
             for (float off : offsets) {
-                PigBody clone = mainPig;
+                PigBody clone = parent;
                 clone.radius = 15.0f;
                 clone.abilityUsed = true;
-                clone.pos = mainPig.pos + Vec2(0.0f, off * 45.0f);
+                clone.pos = parent.pos + Vec2(0.0f, off * 45.0f);
                 clone.vel = {std::cos(baseAngle + off) * speed, std::sin(baseAngle + off) * speed};
                 activePigs.push_back(clone);
             }
-            spawnBurst(mainPig.pos, 20, {110, 235, 185, 255}, 200.0f);
-            floatScores.push_back({mainPig.pos, "TRI-SQUADRON!", {130, 250, 200, 255}, 1.0f, 1.0f});
+            spawnBurst(parent.pos, 20, {110, 235, 185, 255}, 200.0f);
+            floatScores.push_back({parent.pos, "TRI-SQUADRON!", {130, 250, 200, 255}, 1.0f, 1.0f});
             assets.playSound("sound.split");
             addTrauma(0.28f);
         } else if (mainPig.type == PigType::BOMB) {
@@ -9106,8 +9170,26 @@ public:
         }
     }
 
+    // Writes to a temp file and renames it over the real one, so a crash or a
+    // full disk mid-write can never leave the player with a truncated save.
+    static bool writeFileAtomically(const std::string& path, const std::string& contents) {
+        std::string tmp = path + ".tmp";
+        {
+            std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+            if (!out) return false;
+            out << contents;
+            out.flush();
+            if (!out) { std::remove(tmp.c_str()); return false; }
+        }
+        if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+            std::remove(tmp.c_str());
+            return false;
+        }
+        return true;
+    }
+
     void saveProgress() {
-        std::ofstream out("save_progress.cfg");
+        std::ostringstream out;
         out << "audio.music_muted = " << (assets.musicMuted ? 1 : 0) << "\n";
         out << "audio.sfx_muted = " << (assets.sfxMuted ? 1 : 0) << "\n";
         out << "achievements.mask = " << getAchievementsMask() << "\n";
@@ -9117,6 +9199,9 @@ public:
             out << "level." << (i + 1) << ".stars = " << bestStars[i] << "\n";
             out << "level." << (i + 1) << ".score = " << bestScores[i] << "\n";
             out << "level." << (i + 1) << ".truffle = " << (trufflesFound[i] ? 1 : 0) << "\n";
+        }
+        if (!writeFileAtomically("save_progress.cfg", out.str())) {
+            std::cerr << "[SAVE] Failed to write save_progress.cfg\n";
         }
     }
 
@@ -9150,20 +9235,20 @@ public:
                 continue;
             }
             if (line.rfind("endless.best_wave = ", 0) == 0) {
-                endlessBestWave = std::atoi(line.substr(20).c_str());
+                endlessBestWave = std::max(0, std::atoi(line.substr(20).c_str()));
                 continue;
             }
-            for (int i = 0; i < NUM_LEVELS; ++i) {
-                std::string sk = "level." + std::to_string(i + 1) + ".stars = ";
-                std::string sck = "level." + std::to_string(i + 1) + ".score = ";
-                std::string tk = "level." + std::to_string(i + 1) + ".truffle = ";
-                if (line.rfind(sk, 0) == 0) {
-                    bestStars[i] = std::atoi(line.substr(sk.size()).c_str());
-                } else if (line.rfind(sck, 0) == 0) {
-                    bestScores[i] = std::atoi(line.substr(sck.size()).c_str());
-                } else if (line.rfind(tk, 0) == 0) {
-                    trufflesFound[i] = (std::atoi(line.substr(tk.size()).c_str()) != 0);
-                }
+            // level.<N>.<field> = <value>
+            int lvl = 0;
+            char field[16] = {0};
+            int value = 0;
+            if (std::sscanf(line.c_str(), "level.%d.%15[a-z] = %d", &lvl, field, &value) == 3 &&
+                lvl >= 1 && lvl <= NUM_LEVELS) {
+                int i = lvl - 1;
+                std::string f(field);
+                if (f == "stars") bestStars[i] = std::clamp(value, 0, 3);
+                else if (f == "score") bestScores[i] = std::max(0, value);
+                else if (f == "truffle") trufflesFound[i] = (value != 0);
             }
         }
     }
@@ -11219,7 +11304,7 @@ public:
                        "RETRY LEVEL", {78, 62, 48, 250}, {112, 88, 66, 255}, 1.8f);
                 addBtn("OPEN_LEVEL_SELECT", card.x + 245.0f, by, 190.0f, 50.0f,
                        "LEVEL SELECT", {52, 74, 114, 250}, {76, 104, 156, 255}, 1.8f);
-                if (currentLevelIdx + 1 < NUM_LEVELS) {
+                if (currentLevelIdx + 1 < NUM_LEVELS && isLevelUnlocked(currentLevelIdx + 1)) {
                     addBtn("NEXT_LEVEL_BTN", card.x + 460.0f, by, 185.0f, 50.0f,
                            "NEXT LEVEL >>", {48, 118, 76, 255}, {68, 158, 102, 255}, 1.9f);
                 }
@@ -11371,7 +11456,7 @@ public:
         if (id == "TOGGLE_STORM") { editorStorm = !editorStorm; return true; }
 
         if (id == "NEXT_LEVEL_BTN") {
-            if (currentLevelIdx + 1 < NUM_LEVELS) {
+            if (currentLevelIdx + 1 < NUM_LEVELS && isLevelUnlocked(currentLevelIdx + 1)) {
                 loadLevel(currentLevelIdx + 1);
                 screen = ScreenState::PLAYING;
             }
@@ -11412,16 +11497,38 @@ public:
 // ============================================================================
 // AUTOMATED HEADLESS SELF-TEST & SCREENSHOT VERIFICATION SUITE
 // ============================================================================
-static int runSelfTestAndExportScreenshots(bool exportBmp) {
-    std::string existingSave;
-    {
-        std::ifstream in("save_progress.cfg");
-        if (in.good()) {
-            std::stringstream ss;
-            ss << in.rdbuf();
-            existingSave = ss.str();
+// Snapshots files the self-test overwrites and puts them back on every exit
+// path, including early returns when a check fails.
+struct ScopedFileRestore {
+    struct Entry { std::string path; bool existed; std::string contents; };
+    std::vector<Entry> entries;
+    explicit ScopedFileRestore(std::initializer_list<const char*> paths) {
+        for (const char* p : paths) {
+            Entry e{p, false, {}};
+            std::ifstream in(p, std::ios::binary);
+            if (in.good()) {
+                std::stringstream ss;
+                ss << in.rdbuf();
+                e.existed = true;
+                e.contents = ss.str();
+            }
+            entries.push_back(std::move(e));
         }
     }
+    ~ScopedFileRestore() {
+        for (const auto& e : entries) {
+            if (e.existed) {
+                std::ofstream out(e.path, std::ios::binary | std::ios::trunc);
+                out << e.contents;
+            } else {
+                std::remove(e.path.c_str());
+            }
+        }
+    }
+};
+
+static int runSelfTestAndExportScreenshots(bool exportBmp) {
+    ScopedFileRestore restoreUserFiles{"save_progress.cfg", "custom_siege_2.cfg"};
 
     setenv("SDL_VIDEODRIVER", "dummy", 1);
     setenv("SDL_AUDIODRIVER", "dummy", 1);
@@ -12235,12 +12342,106 @@ static int runSelfTestAndExportScreenshots(bool exportBmp) {
         }
     }
 
-    // Restore player's original save file if it existed, otherwise remove test save
-    if (!existingSave.empty()) {
-        std::ofstream out("save_progress.cfg");
-        out << existingSave;
-    } else {
-        std::remove("save_progress.cfg");
+    // Regression: Clover split must not read through a dangling reference
+    // after activePigs reallocates (run under -fsanitize=address to verify).
+    {
+        game.loadLevel(0);
+        game.activePigs.clear();
+        game.activePigs.shrink_to_fit();
+        PigBody clover = game.createPigInstance(PigType::SPLIT, {450.0f, 300.0f});
+        clover.launched = true;
+        clover.vel = {400.0f, -50.0f};
+        game.activePigs.push_back(clover);
+        game.activateMidAirAbility();
+        if (game.activePigs.size() != 3) {
+            std::cerr << "[SELF-TEST] Split ability did not produce 3 pigs! count=" << game.activePigs.size() << "\n";
+            return 60;
+        }
+        for (const auto& p : game.activePigs) {
+            if (!p.abilityUsed || !p.launched || std::abs(p.pos.x - 450.0f) > 1.0f) {
+                std::cerr << "[SELF-TEST] Split clones inherited corrupted parent state!\n";
+                return 61;
+            }
+        }
+    }
+
+    // Regression: a truffle collected outside the campaign must not be
+    // credited to a campaign level (which would unlock vaults).
+    {
+        game.loadLevel(5);
+        game.trufflesFound.fill(false);
+        game.startEndlessMode();
+        game.levelTruffle.exists = true;
+        game.levelTruffle.collected = false;
+        game.collectGoldenTruffle();
+        if (game.getTrufflesFoundCount() != 0) {
+            std::cerr << "[SELF-TEST] Endless-mode truffle was credited to campaign progress!\n";
+            return 62;
+        }
+    }
+
+    // Regression: custom level round-trip keeps full bird stats, and the
+    // editor's wind / storm settings reach test play.
+    {
+        game.screen = ScreenState::EDITOR;
+        game.isTestPlaying = false;
+        game.customSlot = 2;
+        game.customLevel = LevelSpec{};
+        game.customLevel.birds = {
+            SnoutAndSiegeGame::makeBird(BirdClass::FALCON, 800.0f, 500.0f),
+            SnoutAndSiegeGame::makeBird(BirdClass::CONDOR, 900.0f, 400.0f, false)
+        };
+        game.customLevel.pendulums = {SnoutAndSiegeGame::makeEditorPendulum(700.0f, 200.0f, true)};
+        game.editorWind = 60.0f;
+        game.editorStorm = true;
+        game.saveCustomLevel(2);
+        game.customLevel = LevelSpec{};
+        game.editorWind = 0.0f;
+        game.editorStorm = false;
+        game.loadCustomLevel(2);
+        const auto& lb = game.customLevel.birds;
+        if (lb.size() != 2 || !lb[0].hasShield || lb[0].maxHp != 150.0f ||
+            !lb[1].inZeppelin || lb[1].maxHp != 240.0f ||
+            game.customLevel.pendulums.size() != 1 || game.customLevel.pendulums[0].radius != 18.0f) {
+            std::cerr << "[SELF-TEST] Custom level reload lost bird/pendulum stats!\n";
+            return 63;
+        }
+        game.editorWind = -90.0f;
+        game.editorStorm = true;
+        game.startEditorTestPlay();
+        if (game.currentWind != -90.0f || game.stormClouds.empty()) {
+            std::cerr << "[SELF-TEST] Editor wind/storm settings were not applied to test play!\n";
+            return 64;
+        }
+        game.returnToEditor();
+
+        // Corrupt entries must be rejected rather than cast to invalid enums.
+        {
+            std::ofstream bad("custom_siege_2.cfg");
+            bad << "theme = 99\nblock = 42 100 100 40 40\nbird = 17 100 100 0\nblock = 1 nan 100 40 40\nblock = 1 800 500 40 40\n";
+        }
+        game.loadCustomLevel(2);
+        if (game.editorTheme < 0 || game.editorTheme > 5 || game.customLevel.blocks.size() != 1 ||
+            !game.customLevel.birds.empty()) {
+            std::cerr << "[SELF-TEST] Corrupt custom level entries were not rejected!\n";
+            return 65;
+        }
+    }
+
+    // Regression: WAVs that aren't 44.1 kHz mono S16 are converted on load.
+    {
+        SDL_AudioSpec spec{};
+        spec.freq = 22050;
+        spec.format = 0x8010;
+        spec.channels = 2;
+        std::vector<int16_t> stereo(2000 * 2, 16000);
+        std::vector<int16_t> out;
+        bool ok = AssetPipeline::convertToMixerFormat(spec, reinterpret_cast<const uint8_t*>(stereo.data()),
+                                                      static_cast<uint32_t>(stereo.size() * 2), out);
+        if (!ok || out.size() != 4000 || std::abs(out[100] - 16000) > 2) {
+            std::cerr << "[SELF-TEST] WAV format conversion produced wrong output (size=" << out.size() << ")\n";
+            return 66;
+        }
     }
 
     game.assets.shutdown();
@@ -12272,7 +12473,7 @@ int main(int argc, char** argv) {
     }
 
     SDL_Window* window = SDL_CreateWindow(
-        "Snout & Siege: Rise of the Swine (50-Level Campaign)",
+        "Snout & Siege: Rise of the Swine",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         WINDOW_W, WINDOW_H, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
     );
@@ -12383,49 +12584,19 @@ int main(int argc, char** argv) {
 
                             if (game.editorTool == 0) { // BLOCK
                                 game.customLevel.blocks.push_back(SnoutAndSiegeGame::makeBlock(game.editorMat, gx, gy, game.editorBlockW, game.editorBlockH));
-                                game.assets.playSound("sound.wood_impact", 0.55f);
+                                game.assets.playSound("sound.hit_timber", 0.55f);
                             } else if (game.editorTool == 1) { // BIRD
-                                BirdTarget bt{};
-                                bt.kind = game.editorBird;
-                                bt.pos = {gx, gy};
-                                bt.radius = (bt.kind == BirdClass::CONDOR ? 28.0f :
-                                            (bt.kind == BirdClass::HERON ? 26.0f :
-                                            (bt.kind == BirdClass::FALCON ? 23.0f :
-                                            (bt.kind == BirdClass::OWL ? 23.0f : 20.0f))));
-                                bt.hp = (bt.kind == BirdClass::CONDOR ? 240.0f :
-                                        (bt.kind == BirdClass::HERON ? 210.0f :
-                                        (bt.kind == BirdClass::FALCON ? 150.0f :
-                                        (bt.kind == BirdClass::OWL ? 140.0f : 78.0f))));
-                                bt.maxHp = bt.hp;
-                                bt.hasHelmet = game.editorBirdHelmet;
-                                bt.helmetHp = game.editorBirdHelmet ? 100.0f : 0.0f;
-                                bt.maxHelmetHp = bt.helmetHp;
-                                if (bt.kind == BirdClass::FALCON) {
-                                    bt.hasShield = true;
-                                    bt.shieldHp = 120.0f;
-                                    bt.maxShieldHp = 120.0f;
-                                }
-                                if (bt.kind == BirdClass::CONDOR) {
-                                    bt.inZeppelin = true;
-                                    bt.balloonHp = 70.0f;
-                                    bt.maxBalloonHp = 70.0f;
-                                }
-                                game.customLevel.birds.push_back(bt);
-                                game.assets.playSound("sound.bird_caw", 0.6f);
+                                game.customLevel.birds.push_back(
+                                    SnoutAndSiegeGame::makeBird(game.editorBird, gx, gy, game.editorBirdHelmet));
+                                game.assets.playSound("sound.ui_click", 0.6f);
                             } else if (game.editorTool == 2) { // PENDULUM
-                                PendulumBody pb{};
-                                pb.anchor = {gx, gy};
-                                pb.length = 85.0f;
-                                pb.angle = 0.40f;
-                                pb.radius = 18.0f;
-                                pb.mass = 8.0f;
-                                pb.spiked = game.editorSpikedPendulum;
-                                game.customLevel.pendulums.push_back(pb);
-                                game.assets.playSound("sound.stone_impact", 0.6f);
+                                game.customLevel.pendulums.push_back(
+                                    SnoutAndSiegeGame::makeEditorPendulum(gx, gy, game.editorSpikedPendulum));
+                                game.assets.playSound("sound.hit_metal", 0.6f);
                             } else if (game.editorTool == 3) { // TRUFFLE
                                 game.customLevel.hasTruffle = true;
                                 game.customLevel.trufflePos = {gx, gy};
-                                game.assets.playSound("sound.truffle_collect", 0.6f);
+                                game.assets.playSound("sound.truffle", 0.6f);
                             } else if (game.editorTool == 4) { // ERASER
                                 bool erased = false;
                                 if (game.customLevel.hasTruffle && (game.customLevel.trufflePos - Vec2(mx, my)).length() < 32.0f) {
@@ -12462,7 +12633,7 @@ int main(int argc, char** argv) {
                                     }
                                 }
                                 if (erased) {
-                                    game.assets.playSound("sound.wood_shatter", 0.5f);
+                                    game.assets.playSound("sound.hit_twig", 0.5f);
                                 }
                             }
                         }
@@ -12481,6 +12652,11 @@ int main(int argc, char** argv) {
                 }
             } else if (ev.type == SDL_KEYDOWN) {
                 int sym = ev.key.keysym.sym;
+
+                // Ignore OS key auto-repeat for everything except camera/page
+                // panning, so holding a toggle key doesn't flip it every frame.
+                const bool isPanKey = (sym == SDLK_LEFT || sym == SDLK_RIGHT || sym == SDLK_a || sym == SDLK_d);
+                if (ev.key.repeat && !isPanKey) continue;
 
                 if (sym == SDLK_F11 || sym == SDLK_f) {
                     game.toggleFullscreen();
@@ -12522,9 +12698,11 @@ int main(int argc, char** argv) {
                         else if (game.screen == ScreenState::ENDLESS) game.startEndlessMode();
                         else game.loadLevel(game.currentLevelIdx);
                     } else if (sym == SDLK_n && game.screen == ScreenState::PLAYING) {
-                        game.loadLevel((game.currentLevelIdx + 1) % NUM_LEVELS);
+                        int next = game.currentLevelIdx + 1;
+                        if (next < NUM_LEVELS && game.isLevelUnlocked(next)) game.loadLevel(next);
                     } else if (sym == SDLK_p && game.screen == ScreenState::PLAYING) {
-                        game.loadLevel((game.currentLevelIdx + NUM_LEVELS - 1) % NUM_LEVELS);
+                        int prev = game.currentLevelIdx - 1;
+                        if (prev >= 0 && game.isLevelUnlocked(prev)) game.loadLevel(prev);
                     } else if (sym == SDLK_RIGHT || sym == SDLK_d) {
                         game.isManualPanning = true;
                         game.manualPanTimer = 3.0f;
