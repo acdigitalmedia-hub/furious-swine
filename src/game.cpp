@@ -958,12 +958,16 @@ bool SnoutAndSiegeGame::handleButtonClick(const std::string& id, bool& running) 
     if (id == "MAT_ICE") { editorMat = MaterialTier::ICE; return true; }
     if (id == "MAT_TNT") { editorMat = MaterialTier::TNT; return true; }
     if (id == "MAT_BOUNCE") { editorMat = MaterialTier::TRAMPOLINE; return true; }
+    if (id == "MAT_TWIG") { editorMat = MaterialTier::TWIG; return true; }
+    if (id == "MAT_MAGMA") { editorMat = MaterialTier::MAGMA_VENT; return true; }
 
     if (id == "BLOCK_SIZE_SM") { editorBlockW = 16.0f; editorBlockH = 50.0f; return true; }
     if (id == "BLOCK_SIZE_MED") { editorBlockW = 20.0f; editorBlockH = 70.0f; return true; }
     if (id == "BLOCK_SIZE_LG") { editorBlockW = 24.0f; editorBlockH = 90.0f; return true; }
     if (id == "BLOCK_SIZE_HORIZ") { editorBlockW = 80.0f; editorBlockH = 18.0f; return true; }
     if (id == "BLOCK_SIZE_SQR") { editorBlockW = 36.0f; editorBlockH = 36.0f; return true; }
+    if (id == "BLOCK_SIZE_SLAB") { editorBlockW = 60.0f; editorBlockH = 22.0f; return true; }
+    if (id == "BLOCK_SIZE_LINTEL") { editorBlockW = 120.0f; editorBlockH = 22.0f; return true; }
 
     if (id == "BIRD_TOUCAN") { editorBird = BirdClass::TOUCAN; return true; }
     if (id == "BIRD_OWL") { editorBird = BirdClass::OWL; return true; }

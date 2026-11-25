@@ -1,5 +1,7 @@
 #include "game.h"
 
+#include <functional>
+
 namespace {
 
 using namespace ui;
@@ -396,37 +398,23 @@ void SnoutAndSiegeGame::renderAchievementsScreen(SDL_Renderer* ren) {
 }
 
 void SnoutAndSiegeGame::renderEditorScreen(SDL_Renderer* ren) {
-    // 1. Slingshot Launchpad in Editor
-    renderSiegeCatapultBase(ren, 180.0f, SLING_Y);
-    renderOrigamiPigGeometry(ren, PigType::TROTTER, {180, SLING_Y - 4.0f}, 24.0f, -0.08f);
-    drawCatapultFrontArm(ren, 180.0f, SLING_Y);
-    drawText(ren, "SWINE LAUNCHPAD", 180.0f, SLING_Y + 44.0f, 1.25f, {210, 225, 245, 220}, true);
+    using namespace ui;
+    const float dockW = 215.0f, topH = 70.0f;
 
-    // 2. Construction Zone Indicator & Grid
-    drawThickLine(ren, {360.0f, 72.0f}, {WINDOW_W - 10.0f, 72.0f}, 1.5f, {80, 160, 220, 120});
-    drawThickLine(ren, {360.0f, 72.0f}, {360.0f, GROUND_Y}, 1.5f, {80, 160, 220, 120});
-    drawText(ren, "** FORTRESS ARCHITECT CONSTRUCTION ZONE **", 780.0f, 84.0f, 1.30f, {120, 190, 255, 160}, true);
-
+    // --- Canvas: build zone, grid, placed pieces.
+    fillRectGrad(ren, {dockW, topH, WINDOW_W - dockW, 60}, {10, 8, 24, 70}, {10, 8, 24, 0});
     if (editorSnapGrid) {
-        SDL_SetRenderDrawColor(ren, 140, 180, 220, 50);
-        for (float gx = 360.0f; gx <= WINDOW_W - 10.0f; gx += 20.0f) {
+        SDL_SetRenderDrawColor(ren, 255, 255, 255, 38);
+        for (float gx = 240.0f; gx <= WINDOW_W - 10.0f; gx += 20.0f) {
             for (float gy = 80.0f; gy <= GROUND_Y; gy += 20.0f) {
-                SDL_FRect dot{gx - 1.0f, gy - 1.0f, 2.0f, 2.0f};
-                SDL_RenderFillRectF(ren, &dot);
+                SDL_FRect d{gx - 1.0f, gy - 1.0f, 2.0f, 2.0f};
+                SDL_RenderFillRectF(ren, &d);
             }
         }
     }
-
-    // 3. Render Placed Elements from customLevel
-    for (const auto& b : customLevel.blocks) {
-        renderBlock(ren, b, {0.0f, 0.0f});
-    }
-    for (const auto& p : customLevel.pendulums) {
-        renderPendulum(ren, p, {0.0f, 0.0f});
-    }
-    for (const auto& bt : customLevel.birds) {
-        renderBird(ren, bt, {0.0f, 0.0f});
-    }
+    for (const auto& b : customLevel.blocks) renderBlock(ren, b, {0.0f, 0.0f});
+    for (const auto& p : customLevel.pendulums) renderPendulum(ren, p, {0.0f, 0.0f});
+    for (const auto& bt : customLevel.birds) renderBird(ren, bt, {0.0f, 0.0f});
     if (customLevel.hasTruffle) {
         GoldenTruffle bk = levelTruffle;
         levelTruffle.exists = true;
@@ -437,168 +425,209 @@ void SnoutAndSiegeGame::renderEditorScreen(SDL_Renderer* ren) {
         levelTruffle = bk;
     }
 
-    // 4. Ghost Placement Cursor
+    // --- Placement preview under the cursor.
     if (mouseX > 218.0f && mouseY > 72.0f && mouseY < GROUND_Y + 10.0f) {
         float gx = editorSnapGrid ? (std::round(mouseX / 20.0f) * 20.0f) : mouseX;
         float gy = editorSnapGrid ? (std::round(mouseY / 20.0f) * 20.0f) : mouseY;
-
-        if (editorTool == 0) { // BLOCK
-            SDL_FRect r{gx - editorBlockW * 0.5f, gy - editorBlockH * 0.5f, editorBlockW, editorBlockH};
-            SDL_SetRenderDrawColor(ren, 255, 235, 120, 130);
-            SDL_RenderFillRectF(ren, &r);
-            drawThickLine(ren, {r.x, r.y}, {r.x + r.w, r.y}, 2.0f, {255, 215, 0, 240});
-            drawThickLine(ren, {r.x + r.w, r.y}, {r.x + r.w, r.y + r.h}, 2.0f, {255, 215, 0, 240});
-            drawThickLine(ren, {r.x + r.w, r.y + r.h}, {r.x, r.y + r.h}, 2.0f, {255, 215, 0, 240});
-            drawThickLine(ren, {r.x, r.y + r.h}, {r.x, r.y}, 2.0f, {255, 215, 0, 240});
-        } else if (editorTool == 1) { // BIRD
-            drawNGon(ren, {gx, gy}, 20.0f, 12, 0.0f, {255, 215, 0, 140});
-            drawText(ren, "BIRD", gx, gy - 6.0f, 1.20f, {255, 255, 255, 220}, true);
-        } else if (editorTool == 2) { // PENDULUM
-            drawNGon(ren, {gx, gy}, 6.0f, 8, 0.0f, {255, 215, 0, 200});
-            drawThickLine(ren, {gx, gy}, {gx + 30.0f, gy + 80.0f}, 2.5f, {220, 220, 240, 160});
-            drawNGon(ren, {gx + 30.0f, gy + 80.0f}, 18.0f, 10, 0.0f, {255, 140, 90, 160});
-        } else if (editorTool == 3) { // TRUFFLE
-            drawNGon(ren, {gx, gy}, 16.0f, 10, 0.0f, {255, 215, 0, 180});
-            drawText(ren, "TRUFFLE", gx, gy - 5.0f, 1.15f, {255, 255, 255, 220}, true);
-        } else if (editorTool == 4) { // ERASER
-            drawNGon(ren, {mouseX, mouseY}, 24.0f, 16, 0.0f, {245, 60, 60, 130});
-            drawThickLine(ren, {mouseX - 12.0f, mouseY - 12.0f}, {mouseX + 12.0f, mouseY + 12.0f}, 3.0f, {255, 255, 255, 240});
-            drawThickLine(ren, {mouseX - 12.0f, mouseY + 12.0f}, {mouseX + 12.0f, mouseY - 12.0f}, 3.0f, {255, 255, 255, 240});
+        if (editorTool == 0) {
+            BlockBody ghost = makeBlock(editorMat, gx, gy, editorBlockW, editorBlockH);
+            renderBlock(ren, ghost, {0, 0});
+            strokeRoundRect(ren, {gx - editorBlockW * 0.5f - 4, gy - editorBlockH * 0.5f - 4, editorBlockW + 8, editorBlockH + 8},
+                            6.0f, 2.0f, {255, 236, 140, 230});
+        } else if (editorTool == 1) {
+            BirdTarget ghost = makeBird(editorBird, gx, gy, editorBirdHelmet);
+            renderBird(ren, ghost, {0, 0});
+            ring(ren, {gx, gy}, ghost.radius + 6, 2.0f, {255, 236, 140, 230});
+        } else if (editorTool == 2) {
+            drawThickLine(ren, {gx, gy}, {gx + 30.0f, gy + 80.0f}, 2.5f, {230, 230, 245, 200});
+            fillCircle(ren, {gx, gy}, 6.0f, {255, 214, 90, 255}, 14);
+            fillCircleGrad(ren, {gx + 30.0f, gy + 80.0f}, 18.0f, {170, 176, 196, 230}, {80, 86, 104, 230}, 22);
+        } else if (editorTool == 3) {
+            GoldenTruffle bk = levelTruffle;
+            levelTruffle.exists = true;
+            levelTruffle.collected = false;
+            levelTruffle.pos = {gx, gy};
+            levelTruffle.radius = 16.0f;
+            renderGoldenTruffle(ren, {0, 0});
+            levelTruffle = bk;
+        } else if (editorTool == 4) {
+            fillCircle(ren, {mouseX, mouseY}, 24.0f, {226, 78, 66, 120}, 24);
+            ring(ren, {mouseX, mouseY}, 24.0f, 2.5f, {255, 140, 130, 255});
+            icon(ren, UiIcon::QUIT, {mouseX, mouseY}, 22.0f, pal::CREAM);
         }
     }
 
-    auto addBtn = [&](const std::string& id, float x, float y, float w, float h,
-                      const std::string& label, SDL_Color bg, SDL_Color hov, float sc = 1.45f) {
-        UIButton b;
-        b.id = id; b.rect = {x, y, w, h}; b.label = label;
-        b.bgCol = bg; b.hoverCol = hov; b.textScale = sc;
-        activeButtons.push_back(b);
-        drawButton(ren, b, mouseX, mouseY);
+    // --- Picture tile helper: a selectable button showing a live preview.
+    auto tile = [&](const std::string& id, SDL_FRect r, bool selected, const std::string& tip,
+                    const std::function<void(Vec2)>& art) {
+        UIButton hit;
+        hit.id = id;
+        hit.rect = r;
+        hit.tooltip = tip;
+        activeButtons.push_back(hit);
+        bool hov = hit.contains(mouseX, mouseY);
+        SDL_FRect face = buttonFace(ren, r, selected ? SDL_Color{92, 124, 200, 255} : SDL_Color{62, 70, 104, 255},
+                                    hov, selected, 10.0f);
+        art({face.x + face.w * 0.5f, face.y + face.h * 0.5f});
+        if (hov && !tip.empty()) {
+            float tw = textWidth(tip, FontFace::BOLD, 14.0f) + 18.0f;
+            SDL_FRect tr{std::min(r.x, WINDOW_W - tw - 6), r.y + r.h + 6, tw, 26};
+            fillRoundRect(ren, tr, 8.0f, {16, 14, 30, 235});
+            TextStyle ts = textStyle(FontFace::BOLD, 14.0f, pal::CREAM, TextAlign::CENTER);
+            drawTextStyled(ren, tip, tr.x + tw * 0.5f, tr.y + 13 - textCapTop(ts.face, 14) - textCapHeight(ts.face, 14) * 0.5f, ts);
+        }
+    };
+    auto header = [&](const std::string& s, float y) {
+        TextStyle hs = textStyle(FontFace::BOLD, 14.0f, {170, 178, 214, 255});
+        drawTextStyled(ren, s, 14.0f, y, hs);
+    };
+    auto note = [&](const std::string& s, float y) {
+        TextStyle ns = textStyle(FontFace::BODY, 14.0f, {214, 218, 240, 255});
+        return drawTextWrapped(ren, s, 14.0f, y, dockW - 28.0f, ns, 1.1f);
     };
 
-    // 5. Left Tool Dock (0, 70, 215, WINDOW_H - 70)
-    SDL_FRect leftDock{0, 70.0f, 215.0f, WINDOW_H - 70.0f};
-    ui::fillRectGrad(ren, leftDock, {38, 42, 72, 242}, {26, 28, 52, 242});
-    drawThickLine(ren, {215.0f, 70.0f}, {215.0f, WINDOW_H}, 3.0f, {24, 22, 40, 255});
+    // --- Left dock.
+    fillRectGrad(ren, {0, topH, dockW, WINDOW_H - topH}, {40, 44, 76, 246}, {28, 30, 56, 246});
+    drawThickLine(ren, {dockW, topH}, {dockW, WINDOW_H}, 3.0f, pal::INK);
 
-    drawText(ren, "SIEGE TOOLS", 107.0f, 78.0f, 1.40f, {255, 215, 80, 255}, true);
-
-    // Tool buttons
-    auto toolCol = [&](int t) {
-        return (editorTool == t) ? SDL_Color{58, 120, 175, 255} : SDL_Color{35, 48, 70, 240};
-    };
-    addBtn("TOOL_BLOCK", 12.0f, 96.0f, 92.0f, 30.0f, "BLOCK", toolCol(0), {75, 140, 195, 255}, 1.40f);
-    addBtn("TOOL_BIRD", 110.0f, 96.0f, 92.0f, 30.0f, "BIRD", toolCol(1), {75, 140, 195, 255}, 1.40f);
-    addBtn("TOOL_PENDULUM", 12.0f, 130.0f, 92.0f, 30.0f, "PENDULUM", toolCol(2), {75, 140, 195, 255}, 1.25f);
-    addBtn("TOOL_TRUFFLE", 110.0f, 130.0f, 92.0f, 30.0f, "TRUFFLE", toolCol(3), {75, 140, 195, 255}, 1.30f);
-    addBtn("TOOL_ERASER", 12.0f, 164.0f, 190.0f, 30.0f, "DEMOLISH ERASER",
-           (editorTool == 4 ? SDL_Color{175, 45, 45, 255} : SDL_Color{75, 30, 35, 240}), {215, 60, 60, 255}, 1.35f);
-
-    // Sub-tool palette
-    if (editorTool == 0) {
-        drawText(ren, "MATERIAL", 107.0f, 204.0f, 1.30f, {240, 220, 150, 255}, true);
-        auto matCol = [&](MaterialTier m) {
-            return (editorMat == m) ? SDL_Color{62, 128, 182, 255} : SDL_Color{32, 44, 64, 240};
-        };
-        addBtn("MAT_WOOD", 12.0f, 220.0f, 92.0f, 26.0f, "TIMBER", matCol(MaterialTier::TIMBER), {70, 135, 190, 255}, 1.30f);
-        addBtn("MAT_STONE", 110.0f, 220.0f, 92.0f, 26.0f, "STONE", matCol(MaterialTier::STONE), {70, 135, 190, 255}, 1.30f);
-        addBtn("MAT_ICE", 12.0f, 250.0f, 92.0f, 26.0f, "ICE", matCol(MaterialTier::ICE), {70, 135, 190, 255}, 1.30f);
-        addBtn("MAT_TNT", 110.0f, 250.0f, 92.0f, 26.0f, "TNT", matCol(MaterialTier::TNT), {185, 55, 55, 255}, 1.30f);
-        addBtn("MAT_BOUNCE", 12.0f, 280.0f, 190.0f, 26.0f, "TRAMPOLINE BOUNCER", matCol(MaterialTier::TRAMPOLINE), {70, 135, 190, 255}, 1.25f);
-
-        drawText(ren, "BLOCK SIZE", 107.0f, 316.0f, 1.30f, {240, 220, 150, 255}, true);
-        auto sizeCol = [&](float w, float h) {
-            return (editorBlockW == w && editorBlockH == h) ? SDL_Color{62, 128, 182, 255} : SDL_Color{32, 44, 64, 240};
-        };
-        addBtn("BLOCK_SIZE_SM", 12.0f, 332.0f, 190.0f, 24.0f, "SM POST (16x50)", sizeCol(16.0f, 50.0f), {70, 135, 190, 255}, 1.20f);
-        addBtn("BLOCK_SIZE_MED", 12.0f, 360.0f, 190.0f, 24.0f, "MED BEAM (20x70)", sizeCol(20.0f, 70.0f), {70, 135, 190, 255}, 1.20f);
-        addBtn("BLOCK_SIZE_LG", 12.0f, 388.0f, 190.0f, 24.0f, "LG PILLAR (24x90)", sizeCol(24.0f, 90.0f), {70, 135, 190, 255}, 1.20f);
-        addBtn("BLOCK_SIZE_HORIZ", 12.0f, 416.0f, 190.0f, 24.0f, "HORIZ PLANK (80x18)", sizeCol(80.0f, 18.0f), {70, 135, 190, 255}, 1.20f);
-        addBtn("BLOCK_SIZE_SQR", 12.0f, 444.0f, 190.0f, 24.0f, "SQUARE BLOCK (36x36)", sizeCol(36.0f, 36.0f), {70, 135, 190, 255}, 1.20f);
-    } else if (editorTool == 1) {
-        drawText(ren, "BIRD SPECIES", 107.0f, 204.0f, 1.30f, {240, 220, 150, 255}, true);
-        auto birdCol = [&](BirdClass bc) {
-            return (editorBird == bc) ? SDL_Color{62, 128, 182, 255} : SDL_Color{32, 44, 64, 240};
-        };
-        addBtn("BIRD_TOUCAN", 12.0f, 224.0f, 190.0f, 26.0f, "SENTRY TOUCAN (HP 78)", birdCol(BirdClass::TOUCAN), {70, 135, 190, 255}, 1.20f);
-        addBtn("BIRD_OWL",    12.0f, 254.0f, 190.0f, 26.0f, "WARDEN OWL (HP 140)",   birdCol(BirdClass::OWL),    {70, 135, 190, 255}, 1.20f);
-        addBtn("BIRD_HERON",  12.0f, 284.0f, 190.0f, 26.0f, "ARCHDUKE HERON (HP 210)", birdCol(BirdClass::HERON),  {70, 135, 190, 255}, 1.20f);
-        addBtn("BIRD_FALCON", 12.0f, 314.0f, 190.0f, 26.0f, "COMMANDER FALCON (SHIELD)", birdCol(BirdClass::FALCON), {70, 135, 190, 255}, 1.15f);
-        addBtn("BIRD_CONDOR", 12.0f, 344.0f, 190.0f, 26.0f, "BARON VON CONDOR (ZEPPELIN)", birdCol(BirdClass::CONDOR), {70, 135, 190, 255}, 1.10f);
-
-        std::string helmText = std::string("HELMET: ") + (editorBirdHelmet ? "IRON (+100)" : "NONE");
-        SDL_Color helmBg = editorBirdHelmet ? SDL_Color{160, 110, 40, 255} : SDL_Color{36, 48, 68, 240};
-        addBtn("TOGGLE_HELMET", 12.0f, 380.0f, 190.0f, 28.0f, helmText, helmBg, {190, 140, 60, 255}, 1.25f);
-    } else if (editorTool == 2) {
-        drawText(ren, "PENDULUM BOB", 107.0f, 204.0f, 1.30f, {240, 220, 150, 255}, true);
-        std::string spikeText = std::string("SPIKES: ") + (editorSpikedPendulum ? "YES (LETHAL)" : "NO (BLUNT)");
-        SDL_Color spkBg = editorSpikedPendulum ? SDL_Color{165, 45, 45, 255} : SDL_Color{36, 48, 68, 240};
-        addBtn("TOGGLE_SPIKE", 12.0f, 224.0f, 190.0f, 32.0f, spikeText, spkBg, {200, 65, 65, 255}, 1.30f);
-        drawText(ren, "Click on arena to set anchor.", 107.0f, 275.0f, 1.15f, {190, 205, 225, 220}, true);
-        drawText(ren, "Heavy wrecking ball swings", 107.0f, 295.0f, 1.15f, {190, 205, 225, 220}, true);
-        drawText(ren, "with harmonic physics gravity.", 107.0f, 315.0f, 1.15f, {190, 205, 225, 220}, true);
-    } else if (editorTool == 3) {
-        drawText(ren, "SECRET TRUFFLE", 107.0f, 204.0f, 1.30f, {255, 215, 80, 255}, true);
-        drawText(ren, "Click arena to place hidden", 107.0f, 235.0f, 1.15f, {210, 225, 240, 220}, true);
-        drawText(ren, "Golden Truffle (+2,500 pts).", 107.0f, 255.0f, 1.15f, {210, 225, 240, 220}, true);
-        drawText(ren, "Only 1 truffle per fortress.", 107.0f, 275.0f, 1.15f, {210, 225, 240, 220}, true);
-    } else if (editorTool == 4) {
-        drawText(ren, "DEMOLITION ERASER", 107.0f, 204.0f, 1.30f, {255, 120, 120, 255}, true);
-        drawText(ren, "Click on any placed block,", 107.0f, 235.0f, 1.15f, {210, 225, 240, 220}, true);
-        drawText(ren, "bird, pendulum, or truffle", 107.0f, 255.0f, 1.15f, {210, 225, 240, 220}, true);
-        drawText(ren, "to instantly demolish it.", 107.0f, 275.0f, 1.15f, {210, 225, 240, 220}, true);
+    header("Tool", 80.0f);
+    const char* toolIds[5] = {"TOOL_BLOCK", "TOOL_BIRD", "TOOL_PENDULUM", "TOOL_TRUFFLE", "TOOL_ERASER"};
+    const char* toolTips[5] = {"Blocks", "Birds", "Wrecking ball", "Golden truffle", "Eraser"};
+    for (int i = 0; i < 5; ++i) {
+        SDL_FRect r{12.0f + i * 39.0f, 100.0f, 35.0f, 40.0f};
+        tile(toolIds[i], r, editorTool == i, toolTips[i], [&, i](Vec2 c) {
+            switch (i) {
+            case 0: renderBlock(ren, makeBlock(MaterialTier::TIMBER, c.x, c.y, 20, 20), {0, 0}); break;
+            case 1: renderTotemBirdGeometry(ren, BirdClass::TOUCAN, c + Vec2(2, 1), 10.0f, 0.0f, 1.0f); break;
+            case 2:
+                drawThickLine(ren, c + Vec2(-5, -11), c + Vec2(2, 3), 1.5f, pal::CREAM);
+                fillCircleGrad(ren, c + Vec2(3, 5), 7.0f, {190, 196, 214, 255}, {90, 96, 116, 255}, 14);
+                break;
+            case 3: fillCircleGrad(ren, c, 8.0f, {255, 236, 150, 255}, {214, 150, 34, 255}, 16); break;
+            case 4: icon(ren, UiIcon::QUIT, c, 16.0f, {255, 150, 140, 255}); break;
+            }
+        });
     }
 
-    // Environment & Grid Controls (dock bottom)
-    std::string gridText = std::string("GRID: ") + (editorSnapGrid ? "ON (20PX)" : "FREEFORM");
-    addBtn("TOGGLE_GRID", 12.0f, 480.0f, 190.0f, 26.0f, gridText,
-           (editorSnapGrid ? SDL_Color{42, 95, 135, 245} : SDL_Color{32, 44, 64, 240}), {65, 125, 175, 255}, 1.25f);
+    float y = 156.0f;
+    if (editorTool == 0) {
+        header("Material", y);
+        y += 20.0f;
+        struct M { const char* id; MaterialTier m; const char* name; };
+        const M mats[7] = {{"MAT_TWIG", MaterialTier::TWIG, "Bamboo"}, {"MAT_WOOD", MaterialTier::TIMBER, "Timber"},
+                           {"MAT_STONE", MaterialTier::STONE, "Stone"}, {"MAT_ICE", MaterialTier::ICE, "Ice"},
+                           {"MAT_TNT", MaterialTier::TNT, "TNT"}, {"MAT_BOUNCE", MaterialTier::TRAMPOLINE, "Trampoline"},
+                           {"MAT_MAGMA", MaterialTier::MAGMA_VENT, "Magma vent"}};
+        for (int i = 0; i < 7; ++i) {
+            SDL_FRect r{12.0f + (i % 4) * 49.0f, y + (i / 4) * 46.0f, 45.0f, 40.0f};
+            tile(mats[i].id, r, editorMat == mats[i].m, mats[i].name,
+                 [&, i](Vec2 c) { renderBlock(ren, makeBlock(mats[i].m, c.x, c.y, 28, 20), {0, 0}); });
+        }
+        y += 104.0f;
+        header("Size", y);
+        y += 20.0f;
+        struct Sz { const char* id; float w, h; const char* name; };
+        const Sz sizes[7] = {{"BLOCK_SIZE_SM", 16, 50, "Post 16 x 50"}, {"BLOCK_SIZE_MED", 20, 70, "Beam 20 x 70"},
+                             {"BLOCK_SIZE_LG", 24, 90, "Pillar 24 x 90"}, {"BLOCK_SIZE_SQR", 36, 36, "Square 36 x 36"},
+                             {"BLOCK_SIZE_SLAB", 60, 22, "Slab 60 x 22"}, {"BLOCK_SIZE_HORIZ", 80, 18, "Plank 80 x 18"},
+                             {"BLOCK_SIZE_LINTEL", 120, 22, "Lintel 120 x 22"}};
+        for (int i = 0; i < 7; ++i) {
+            SDL_FRect r{12.0f + (i % 4) * 49.0f, y + (i / 4) * 52.0f, 45.0f, 46.0f};
+            bool sel = editorBlockW == sizes[i].w && editorBlockH == sizes[i].h;
+            tile(sizes[i].id, r, sel, sizes[i].name, [&, i](Vec2 c) {
+                float k = 30.0f / std::max(sizes[i].w, sizes[i].h);
+                renderBlock(ren, makeBlock(editorMat, c.x, c.y, sizes[i].w * k, sizes[i].h * k), {0, 0});
+            });
+        }
+        y += 110.0f;
+    } else if (editorTool == 1) {
+        header("Bird", y);
+        y += 20.0f;
+        struct B { const char* id; BirdClass k; const char* name; };
+        const B birdsList[5] = {{"BIRD_TOUCAN", BirdClass::TOUCAN, "Toucan  (78 HP)"}, {"BIRD_OWL", BirdClass::OWL, "Owl  (140 HP)"},
+                                {"BIRD_HERON", BirdClass::HERON, "Heron  (210 HP)"},
+                                {"BIRD_FALCON", BirdClass::FALCON, "Falcon  (shield)"},
+                                {"BIRD_CONDOR", BirdClass::CONDOR, "Condor  (zeppelin)"}};
+        for (int i = 0; i < 5; ++i) {
+            SDL_FRect r{12.0f + (i % 3) * 65.0f, y + (i / 3) * 62.0f, 60.0f, 56.0f};
+            tile(birdsList[i].id, r, editorBird == birdsList[i].k, birdsList[i].name, [&, i](Vec2 c) {
+                BirdClass k = birdsList[i].k;
+                renderTotemBirdGeometry(ren, k, c + Vec2(k == BirdClass::FALCON ? 3 : 0, k == BirdClass::CONDOR ? 9 : 1),
+                                        k == BirdClass::CONDOR ? 10.0f : 14.0f, 0.0f, 1.0f, editorBirdHelmet, 1.0f,
+                                        k == BirdClass::FALCON, 1.0f, k == BirdClass::CONDOR, 1.0f);
+            });
+        }
+        y += 132.0f;
+        uiButton(ren, "TOGGLE_HELMET", {12, y, dockW - 24, 40}, editorBirdHelmet ? "Helmet: on" : "Helmet: off",
+                 editorBirdHelmet ? pal::ORANGE : pal::SLATE, UiIcon::NONE, editorBirdHelmet);
+        y += 56.0f;
+    } else if (editorTool == 2) {
+        header("Wrecking ball", y);
+        y += 22.0f;
+        uiButton(ren, "TOGGLE_SPIKE", {12, y, dockW - 24, 40}, editorSpikedPendulum ? "Spiked" : "Blunt",
+                 editorSpikedPendulum ? pal::RED : pal::SLATE, UiIcon::NONE, editorSpikedPendulum);
+        y += 56.0f;
+        y += note("Click to place the anchor. The ball hangs below it and swings when hit.", y) + 10.0f;
+    } else if (editorTool == 3) {
+        header("Golden truffle", y);
+        y += 22.0f;
+        y += note("Click to hide the level's truffle (+2,500 points). Each level holds one.", y) + 10.0f;
+    } else {
+        header("Eraser", y);
+        y += 22.0f;
+        y += note("Click any block, bird, wrecking ball or truffle to remove it.", y) + 10.0f;
+    }
 
-    std::string themeText = std::string("Theme: ") + chapterName(editorTheme);
-    addBtn("CYCLE_THEME", 12.0f, 510.0f, 190.0f, 26.0f, themeText, {46, 56, 82, 245}, {72, 88, 125, 255}, 1.25f);
+    // Level settings at the bottom of the dock.
+    float by = 470.0f;
+    header("Level", by);
+    by += 20.0f;
+    uiButton(ren, "TOGGLE_GRID", {12, by, 92, 36}, "Grid", editorSnapGrid ? pal::BLUE : pal::SLATE, UiIcon::LEVELS,
+             editorSnapGrid, false, "Snap to a 20 px grid (G)");
+    uiButton(ren, "TOGGLE_STORM", {111, by, 92, 36}, "Storm", editorStorm ? pal::PURPLE : pal::SLATE, UiIcon::NONE,
+             editorStorm, false, "Storm clouds with lightning");
+    by += 46.0f;
+    uiButton(ren, "CYCLE_THEME", {12, by, dockW - 24, 36}, chapterName(editorTheme), pal::TEAL, UiIcon::NONE, false, false,
+             "Backdrop (click to cycle)");
+    by += 46.0f;
+    uiButton(ren, "WIND_DEC", {12, by, 40, 36}, "", pal::SLATE, UiIcon::BACK, false, false, "Wind left");
+    uiButton(ren, "WIND_INC", {dockW - 52, by, 40, 36}, "", pal::SLATE, UiIcon::NEXT, false, false, "Wind right");
+    {
+        int w = static_cast<int>(editorWind);
+        std::string ws = w == 0 ? "No wind" : std::to_string(std::abs(w)) + " mph " + (w < 0 ? "left" : "right");
+        TextStyle st = textStyle(FontFace::BOLD, 15.0f, pal::CREAM, TextAlign::CENTER);
+        drawTextStyled(ren, ws, dockW * 0.5f, by + 18 - textCapTop(st.face, 15) - textCapHeight(st.face, 15) * 0.5f, st);
+    }
+    by += 50.0f;
+    TextStyle hs = textStyle(FontFace::BODY, 12.5f, {150, 158, 196, 255});
+    drawTextStyled(ren, "Click: place  ·  Del: clear all", 14.0f, by, hs);
+    drawTextStyled(ren, "T: test  ·  S: save  ·  L: load", 14.0f, by + 18, hs);
 
-    addBtn("WIND_DEC", 12.0f, 540.0f, 42.0f, 26.0f, "<<", {38, 52, 74, 245}, {60, 80, 114, 255}, 1.35f);
-    std::string windLabel = "W: " + std::to_string(static_cast<int>(editorWind));
-    drawText(ren, windLabel, 107.0f, 546.0f, 1.30f, {220, 240, 255, 255}, true);
-    addBtn("WIND_INC", 160.0f, 540.0f, 42.0f, 26.0f, ">>", {38, 52, 74, 245}, {60, 80, 114, 255}, 1.35f);
+    // --- Top bar.
+    fillRectGrad(ren, {0, 0, WINDOW_W, topH}, {48, 52, 88, 248}, {34, 36, 66, 248});
+    drawThickLine(ren, {0, topH}, {WINDOW_W, topH}, 3.0f, pal::INK);
+    uiButton(ren, "BACK_TITLE", {14, 12, 110, 46}, "Menu", pal::SLATE, UiIcon::BACK);
+    // Slot selector.
+    TextStyle sl = textStyle(FontFace::BOLD, 13.0f, {170, 178, 214, 255});
+    drawTextStyled(ren, "Slot", 138.0f, 35.0f - textCapTop(sl.face, 13.0f) - textCapHeight(sl.face, 13.0f) * 0.5f, sl);
+    for (int sIdx = 1; sIdx <= 3; ++sIdx) {
+        uiButton(ren, "EDITOR_SLOT_" + std::to_string(sIdx), {172.0f + (sIdx - 1) * 46.0f, 14, 40, 42},
+                 std::to_string(sIdx), customSlot == sIdx ? pal::BLUE : pal::SLATE, UiIcon::NONE, customSlot == sIdx);
+    }
+    uiButton(ren, "EDITOR_SAVE", {324, 12, 96, 46}, "Save", pal::BLUE, UiIcon::CHECK, false, false, "Save to this slot (S)");
+    uiButton(ren, "EDITOR_LOAD", {428, 12, 96, 46}, "Load", pal::SLATE, UiIcon::RETRY, false, false, "Reload this slot (L)");
+    uiButton(ren, "EDITOR_CLEAR", {532, 12, 96, 46}, "Clear", pal::RED, UiIcon::QUIT, false, false, "Clear everything (Del)");
 
-    std::string stormText = std::string("STORM: ") + (editorStorm ? "YES (LIGHTNING)" : "CALM");
-    addBtn("TOGGLE_STORM", 12.0f, 570.0f, 190.0f, 26.0f, stormText,
-           (editorStorm ? SDL_Color{135, 95, 42, 245} : SDL_Color{32, 44, 64, 240}), {175, 125, 65, 255}, 1.20f);
+    title(ren, "Architect", 650.0f, 10.0f, 28.0f, pal::GOLD, TextAlign::LEFT);
+    std::string counts = std::to_string(customLevel.blocks.size()) + " blocks  ·  " +
+                         std::to_string(customLevel.birds.size()) + " birds  ·  " +
+                         std::to_string(customLevel.pendulums.size()) + " wrecking balls" +
+                         (customLevel.hasTruffle ? "  ·  truffle" : "");
+    TextStyle cs = textStyle(FontFace::BODY, 14.0f, {200, 206, 232, 255});
+    drawTextStyled(ren, counts, 650.0f, 44.0f, cs);
 
-    drawText(ren, "[LMB] PLACE  [DEL] CLEAR", 107.0f, 608.0f, 1.15f, {165, 190, 215, 200}, true);
-    drawText(ren, "[T] TEST PLAY  [S] SAVE", 107.0f, 626.0f, 1.15f, {165, 190, 215, 200}, true);
-
-    // 6. Top Header Bar (0, 0, WINDOW_W, 70)
-    SDL_FRect topBar{0, 0, WINDOW_W, 70.0f};
-    ui::fillRectGrad(ren, topBar, {44, 48, 82, 248}, {32, 34, 62, 248});
-    drawThickLine(ren, {0, 70.0f}, {WINDOW_W, 70.0f}, 3.0f, {24, 22, 40, 255});
-
-    addBtn("BACK_TITLE", 14.0f, 14.0f, 84.0f, 42.0f, "< TITLE", {64, 52, 78, 250}, {94, 76, 114, 255}, 1.55f);
-
-    auto slotCol = [&](int s) {
-        return (customSlot == s) ? SDL_Color{48, 120, 185, 255} : SDL_Color{36, 48, 70, 245};
-    };
-    addBtn("EDITOR_SLOT_1", 106.0f, 14.0f, 68.0f, 42.0f, "SLOT 1", slotCol(1), {68, 145, 215, 255}, 1.45f);
-    addBtn("EDITOR_SLOT_2", 180.0f, 14.0f, 68.0f, 42.0f, "SLOT 2", slotCol(2), {68, 145, 215, 255}, 1.45f);
-    addBtn("EDITOR_SLOT_3", 254.0f, 14.0f, 68.0f, 42.0f, "SLOT 3", slotCol(3), {68, 145, 215, 255}, 1.45f);
-
-    addBtn("EDITOR_SAVE", 330.0f, 14.0f, 68.0f, 42.0f, "SAVE", {42, 85, 125, 245}, {62, 115, 168, 255}, 1.45f);
-    addBtn("EDITOR_LOAD", 404.0f, 14.0f, 68.0f, 42.0f, "LOAD", {48, 72, 98, 245}, {72, 102, 138, 255}, 1.45f);
-    addBtn("EDITOR_CLEAR", 478.0f, 14.0f, 72.0f, 42.0f, "CLEAR", {118, 48, 48, 245}, {158, 68, 68, 255}, 1.45f);
-
-    // Center Level Info
-    std::string slotInfo = "FORTRESS ARCHITECT - SLOT #" + std::to_string(customSlot) + " (" + customLevel.name + ")";
-    drawText(ren, slotInfo, 560.0f, 15.0f, 1.50f, {255, 215, 80, 255}, false);
-
-    std::string countsInfo = "BLOCKS: " + std::to_string(customLevel.blocks.size()) +
-                             " | BIRDS: " + std::to_string(customLevel.birds.size()) +
-                             " | PENDULUMS: " + std::to_string(customLevel.pendulums.size()) +
-                             (customLevel.hasTruffle ? " | TRUFFLE: YES" : " | TRUFFLE: NO");
-    drawText(ren, countsInfo, 560.0f, 38.0f, 1.25f, {185, 215, 245, 255}, false);
-
-    addBtn("EDITOR_TEST_PLAY", 1106.0f, 14.0f, 158.0f, 42.0f, "TEST SIEGE >>",
-           {48, 125, 76, 255}, {68, 165, 102, 255}, 1.70f);
+    uiButton(ren, "EDITOR_TEST_PLAY", {WINDOW_W - 170.0f, 12, 156, 46}, "Test", pal::GREEN, UiIcon::PLAY, false, false,
+             customLevel.birds.empty() ? "Add some birds first!" : "Play this fortress (T)");
 }
 
 namespace {
