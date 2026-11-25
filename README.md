@@ -157,8 +157,10 @@ Set `LEVELS_DIR=/some/dir` to test edited copies of the level files.
 - `src/sdl_runtime.h/.cpp`: SDL2 ABI declarations, `dlopen()` loader, and
   the X11 + software-renderer fallback (no SDL2 headers needed at build time).
 - `src/common.h`: shared constants, `Vec2` math, enums, and entity structs.
-- `src/draw.h/.cpp`: drawing primitives, origami pig/bird models, and the
-  `drawText` helper (falls back to a built-in 5x7 bitmap font).
+- `src/draw.h/.cpp`: drawing primitives and the `drawText` helper (falls back
+  to a built-in 5x7 bitmap font).
+- `src/characters.cpp`: the cartoon pig and bird models (shaded bodies,
+  outlines, eyes, accessories, damage states).
 - `src/text.h/.cpp`: anti-aliased text from the baked font atlas (outlines,
   shadows, alignment, word wrap).
 - `src/ui.h/.cpp`: UI kit: rounded panels, cartoon buttons, ribbons, pills,

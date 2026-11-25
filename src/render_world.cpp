@@ -658,18 +658,6 @@ void SnoutAndSiegeGame::renderPig(SDL_Renderer* ren, const PigBody& p, Vec2 cam)
                              {screenPos.x + p.radius * 0.65f, screenGroundY + 6},
                              {screenPos.x - p.radius * 0.65f, screenGroundY + 6}}, {12, 15, 22, 105});
     }
-    std::string key = (p.type == PigType::TROTTER)  ? "sprite.pig_trotter" :
-                      (p.type == PigType::TURBO    ? "sprite.pig_turbo" :
-                      (p.type == PigType::SPLIT    ? "sprite.pig_split" :
-                      (p.type == PigType::BOMB     ? "sprite.pig_bomb" :
-                      (p.type == PigType::GLIDER   ? "sprite.pig_glider" :
-                      (p.type == PigType::GRAVITON ? "sprite.pig_graviton" : "sprite.pig_drill")))));
-    SDL_Texture* tex = assets.useSpriteTextures ? assets.getTexture(key) : nullptr;
-    if (tex) {
-        SDL_FRect dst{screenPos.x - p.radius * 1.15f, screenPos.y - p.radius * 1.15f,
-                      p.radius * 2.3f, p.radius * 2.3f};
-        SDL_RenderCopyExF(ren, tex, nullptr, &dst, p.angle * (180.0 / PI), nullptr, SDL_FLIP_NONE);
-    }
     renderOrigamiPigGeometry(ren, p.type, screenPos, p.radius, p.angle);
 }
 
@@ -681,16 +669,6 @@ void SnoutAndSiegeGame::renderBird(SDL_Renderer* ren, const BirdTarget& t, Vec2 
                              {screenPos.x + t.radius * 0.85f, screenGroundY + 2},
                              {screenPos.x + t.radius * 0.65f, screenGroundY + 6},
                              {screenPos.x - t.radius * 0.65f, screenGroundY + 6}}, {12, 15, 22, 105});
-    }
-    std::string key = (t.kind == BirdClass::TOUCAN) ? "sprite.bird_toucan" :
-                      (t.kind == BirdClass::OWL    ? "sprite.bird_owl" :
-                      (t.kind == BirdClass::FALCON ? "sprite.bird_falcon" :
-                      (t.kind == BirdClass::CONDOR ? "sprite.bird_condor" : "sprite.bird_heron")));
-    SDL_Texture* tex = assets.useSpriteTextures ? assets.getTexture(key) : nullptr;
-    if (tex) {
-        SDL_FRect dst{screenPos.x - t.radius * 1.1f, screenPos.y - t.radius * 1.1f,
-                      t.radius * 2.2f, t.radius * 2.2f};
-        SDL_RenderCopyExF(ren, tex, nullptr, &dst, t.angle * (180.0 / PI), nullptr, SDL_FLIP_NONE);
     }
     float helmRatio = (t.maxHelmetHp > 0.0f) ? (t.helmetHp / t.maxHelmetHp) : 1.0f;
     float shieldRatio = (t.maxShieldHp > 0.0f) ? (t.shieldHp / t.maxShieldHp) : 1.0f;
