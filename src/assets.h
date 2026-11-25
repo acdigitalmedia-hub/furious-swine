@@ -56,7 +56,7 @@ public:
 
     uint32_t audioDevice = 0;
     bool audioEnabled = true;
-    bool useSpriteTextures = true;
+    bool useSpriteTextures = false;   // V key: classic BMP textures for blocks/truffles
     int loadedSpriteCount = 0;
     int loadedSoundCount = 0;
 

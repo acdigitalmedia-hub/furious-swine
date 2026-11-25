@@ -212,7 +212,7 @@ project root before launching the game.
 - **`M`**: Mute / Unmute music
 - **`S`**: Mute / Unmute sound effects (when not in editor)
 - **`F11`**: Toggle fullscreen
-- **`V`**: Toggle custom BMP sprite textures
+- **`V`**: Toggle the classic BMP textures (from `assets/sprites/`) for blocks and truffles instead of the vector art
 - **`F5`**: Hot-reload `assets/manifest.cfg`, sprites, and sounds
 - **`ESC`**: Pause / resume during a level (pause menu: resume, retry, level select, main menu); on menus, go back to the title; on the title, quit. The game also pauses when its window loses focus.
 - **`ENTER` / `SPACE` / `ESC`**: Dismiss a first-time tip card
