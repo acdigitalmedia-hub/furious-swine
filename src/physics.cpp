@@ -826,11 +826,18 @@ void SnoutAndSiegeGame::resolveCircleOBB(PigBody& p, BlockBody& b) {
     } else if (p.type == PigType::SPLIT && (b.mat == MaterialTier::TWIG || b.mat == MaterialTier::ICE)) {
         dmgMultiplier = 0.38f;
     } else if (p.type == PigType::DRILL && p.drillTimer > 0.0f) {
-        pigPierceFactor = 0.22f;
+        // Stone bites back: the bit slows more and wears out faster on it.
+        const bool hard = (b.mat == MaterialTier::STONE);
+        pigPierceFactor = hard ? 0.45f : 0.22f;
         dmgMultiplier = 0.68f;
-        shotDrillPierces++;
-        if (shotDrillPierces >= 3) {
-            unlockAchievement(AchievementId::DEEP_BORE);
+        if (b.drillStamp != drillBoreId) {
+            b.drillStamp = drillBoreId;
+            shotDrillPierces++;
+            if (shotDrillPierces >= 3) {
+                unlockAchievement(AchievementId::DEEP_BORE);
+            }
+            const float wear = hard ? 0.40f : (b.mat == MaterialTier::TIMBER ? 0.18f : 0.08f);
+            p.drillTimer = std::max(0.0f, p.drillTimer - wear);
         }
         assets.playSound("sound.drill", 0.55f);
         for (int k = 0; k < 4; ++k) {

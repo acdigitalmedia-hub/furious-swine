@@ -151,6 +151,7 @@ struct BlockBody {
     bool stablySupported = false;
     float tntFuse = -1.0f;
     bool ignited = false;
+    int drillStamp = 0;  // last drill bore that pierced this block (see drillBoreId)
 };
 
 struct BirdTarget {

@@ -349,13 +349,19 @@ void SnoutAndSiegeGame::renderLevelSelectScreen(SDL_Renderer* ren) {
                 drawText(ren, "UNBEATEN", cx + 12.0f, cy + 56.0f, 1.30f, {150, 165, 185, 255}, false);
             }
 
-            // Milestone indicators on Level 6, 11, 21
+            // Milestone indicators on each new pig's debut level (6, 11, 21, 31, 41, 45)
             if (idx == 5) {
                 drawText(ren, "* Bramble Unlocked", cx + 12.0f, cy + 80.0f, 1.20f, {255, 210, 80, 255}, false);
             } else if (idx == 10) {
                 drawText(ren, "* Clover Unlocked", cx + 12.0f, cy + 80.0f, 1.20f, {140, 255, 200, 255}, false);
             } else if (idx == 20) {
                 drawText(ren, "* Vulcan Unlocked", cx + 12.0f, cy + 80.0f, 1.20f, {255, 150, 110, 255}, false);
+            } else if (idx == 30) {
+                drawText(ren, "* Gale Unlocked", cx + 12.0f, cy + 80.0f, 1.20f, {140, 220, 255, 255}, false);
+            } else if (idx == 40) {
+                drawText(ren, "* Atticus Unlocked", cx + 12.0f, cy + 80.0f, 1.20f, {210, 140, 255, 255}, false);
+            } else if (idx == 44) {
+                drawText(ren, "* Rusty Unlocked", cx + 12.0f, cy + 80.0f, 1.20f, {255, 195, 75, 255}, false);
             } else {
                 drawText(ren, "CLICK TO PLAY >>", cx + 12.0f, cy + 80.0f, 1.25f, {245, 206, 118, 255}, false);
             }
@@ -1067,36 +1073,45 @@ void SnoutAndSiegeGame::renderHUD(SDL_Renderer* ren) {
             }
 
             // Milestone Pig Unlock Alert or Secret Truffle / Vault Conquered Alert
-            if (currentLevelIdx == 4) {
+            struct PigMilestone {
+                int clearedIdx;
+                const char* title;
+                const char* hint;
+                SDL_Color bg, border, titleCol, hintCol;
+            };
+            static const PigMilestone kMilestones[] = {
+                {4, "** MILESTONE UNLOCKED: BRAMBLE (TURBO PIG) AVAILABLE! **",
+                 "Tap SPACE in mid-air to trigger Supersonic Dash ability!",
+                 {48, 62, 38, 240}, {255, 215, 80, 255}, {255, 235, 110, 255}, {220, 240, 220, 255}},
+                {9, "** MILESTONE UNLOCKED: CLOVER (SPLIT PIG) AVAILABLE! **",
+                 "Tap SPACE in mid-air to split into 3 aerodynamic swine!",
+                 {38, 62, 58, 240}, {120, 245, 195, 255}, {150, 255, 210, 255}, {220, 245, 235, 255}},
+                {19, "** MILESTONE UNLOCKED: VULCAN (BOMB PIG) AVAILABLE! **",
+                 "Tap SPACE or impact to detonate a devastating seismic shockwave!",
+                 {68, 38, 34, 240}, {255, 140, 90, 255}, {255, 180, 120, 255}, {255, 220, 200, 255}},
+                {29, "** MILESTONE UNLOCKED: GALE (GLIDER PIG) AVAILABLE! **",
+                 "Tap SPACE in mid-air to level out and drop twin iron bombs!",
+                 {30, 50, 70, 240}, {110, 190, 255, 255}, {150, 220, 255, 255}, {210, 235, 255, 255}},
+                {39, "** MILESTONE UNLOCKED: ATTICUS (GRAVITON PIG) AVAILABLE! **",
+                 "Tap SPACE to open a vortex that drags blocks in, then implodes!",
+                 {52, 34, 70, 240}, {185, 120, 255, 255}, {210, 150, 255, 255}, {230, 215, 250, 255}},
+                {43, "** MILESTONE UNLOCKED: RUSTY (DRILL PIG) AVAILABLE! **",
+                 "Tap SPACE to bore through blocks. Stone wears the drill out fast!",
+                 {66, 46, 26, 240}, {240, 165, 60, 255}, {255, 200, 90, 255}, {250, 230, 200, 255}},
+            };
+            const PigMilestone* milestone = nullptr;
+            for (const auto& m : kMilestones) {
+                if (m.clearedIdx == currentLevelIdx) milestone = &m;
+            }
+
+            if (milestone) {
                 SDL_FRect mBox{card.x + 30.0f, 342.0f, card.w - 60.0f, 48.0f};
-                SDL_SetRenderDrawColor(ren, 48, 62, 38, 240);
+                SDL_SetRenderDrawColor(ren, milestone->bg.r, milestone->bg.g, milestone->bg.b, milestone->bg.a);
                 SDL_RenderFillRectF(ren, &mBox);
-                drawThickLine(ren, {mBox.x, mBox.y}, {mBox.x + mBox.w, mBox.y}, 2.0f, {255, 215, 80, 255});
-                drawThickLine(ren, {mBox.x, mBox.y + mBox.h}, {mBox.x + mBox.w, mBox.y + mBox.h}, 2.0f, {255, 215, 80, 255});
-                drawText(ren, "** MILESTONE UNLOCKED: BRAMBLE (TURBO PIG) AVAILABLE! **",
-                         WINDOW_W * 0.5f, 350.0f, 1.55f, {255, 235, 110, 255}, true);
-                drawText(ren, "Tap SPACE in mid-air to trigger Supersonic Dash ability!",
-                         WINDOW_W * 0.5f, 370.0f, 1.30f, {220, 240, 220, 255}, true);
-            } else if (currentLevelIdx == 9) {
-                SDL_FRect mBox{card.x + 30.0f, 342.0f, card.w - 60.0f, 48.0f};
-                SDL_SetRenderDrawColor(ren, 38, 62, 58, 240);
-                SDL_RenderFillRectF(ren, &mBox);
-                drawThickLine(ren, {mBox.x, mBox.y}, {mBox.x + mBox.w, mBox.y}, 2.0f, {120, 245, 195, 255});
-                drawThickLine(ren, {mBox.x, mBox.y + mBox.h}, {mBox.x + mBox.w, mBox.y + mBox.h}, 2.0f, {120, 245, 195, 255});
-                drawText(ren, "** MILESTONE UNLOCKED: CLOVER (SPLIT PIG) AVAILABLE! **",
-                         WINDOW_W * 0.5f, 350.0f, 1.55f, {150, 255, 210, 255}, true);
-                drawText(ren, "Tap SPACE in mid-air to split into 3 aerodynamic swine!",
-                         WINDOW_W * 0.5f, 370.0f, 1.30f, {220, 245, 235, 255}, true);
-            } else if (currentLevelIdx == 19) {
-                SDL_FRect mBox{card.x + 30.0f, 342.0f, card.w - 60.0f, 48.0f};
-                SDL_SetRenderDrawColor(ren, 68, 38, 34, 240);
-                SDL_RenderFillRectF(ren, &mBox);
-                drawThickLine(ren, {mBox.x, mBox.y}, {mBox.x + mBox.w, mBox.y}, 2.0f, {255, 140, 90, 255});
-                drawThickLine(ren, {mBox.x, mBox.y + mBox.h}, {mBox.x + mBox.w, mBox.y + mBox.h}, 2.0f, {255, 140, 90, 255});
-                drawText(ren, "** MILESTONE UNLOCKED: VULCAN (BOMB PIG) AVAILABLE! **",
-                         WINDOW_W * 0.5f, 350.0f, 1.55f, {255, 180, 120, 255}, true);
-                drawText(ren, "Tap SPACE or impact to detonate a devastating seismic shockwave!",
-                         WINDOW_W * 0.5f, 370.0f, 1.30f, {255, 220, 200, 255}, true);
+                drawThickLine(ren, {mBox.x, mBox.y}, {mBox.x + mBox.w, mBox.y}, 2.0f, milestone->border);
+                drawThickLine(ren, {mBox.x, mBox.y + mBox.h}, {mBox.x + mBox.w, mBox.y + mBox.h}, 2.0f, milestone->border);
+                drawText(ren, milestone->title, WINDOW_W * 0.5f, 350.0f, 1.55f, milestone->titleCol, true);
+                drawText(ren, milestone->hint, WINDOW_W * 0.5f, 370.0f, 1.30f, milestone->hintCol, true);
             } else if (L.hasTruffle) {
                 SDL_FRect tBox{card.x + 30.0f, 342.0f, card.w - 60.0f, 48.0f};
                 SDL_SetRenderDrawColor(ren, 36, 24, 48, 240);

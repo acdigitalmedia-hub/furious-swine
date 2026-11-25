@@ -83,7 +83,10 @@ void SnoutAndSiegeGame::activateMidAirAbility() {
         addTrauma(0.50f);
     } else if (mainPig.type == PigType::DRILL) {
         // Rusty the Drill Hog: Supersonic rotary bore straight through fortress blocks
-        mainPig.drillTimer = 1.8f;
+        // The bore has a fixed budget that each pierced block wears down (see
+        // resolveCircleOBB), so it punches through a wall or two, not a whole map.
+        mainPig.drillTimer = 1.0f;
+        ++drillBoreId;
         float spd = mainPig.vel.length();
         Vec2 dir = (spd > 10.0f) ? mainPig.vel.normalized() : Vec2(1.0f, 0.0f);
         mainPig.vel = dir * std::max(780.0f, spd * 1.85f);

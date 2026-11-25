@@ -93,6 +93,7 @@ public:
     bool shotHitTrampoline = false;
     bool shotUsedAnvil = false;
     int shotDrillPierces = 0;
+    int drillBoreId = 0;  // increments per Drill activation so each block is counted once per bore
     Vec2 shotLaunchPos{0.0f, 0.0f};
 
     // UI & High Score Notification State
