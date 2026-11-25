@@ -10,10 +10,11 @@
 //                                      each shot is judged by its worst nearby
 //                                      result (+-2.5 deg, +-10% power); "robust"
 //                                      prints that plan instead of the perfect one.
-//   level_lab render  <N> <out.bmp> [shots]
+//   level_lab render  <N> <out.bmp> [shots] [freeze_seconds]
 //                                      picture of level N; with shots (e.g. "1"),
 //                                      plays that many solver shots first and
-//                                      shows the last shot's flight path.
+//                                      shows the last shot's flight path
+//                                      (optionally frozen mid-flight).
 //
 // N is the 1-based level number; levels load from assets/levels/ (or the
 // directory in $LEVELS_DIR, handy for experiments). Run from the
@@ -57,14 +58,14 @@ bool pigReady(const SnoutAndSiegeGame& g) {
 }
 
 // Fires one shot and simulates until the next pig is ready or the level ends.
-Outcome fire(SnoutAndSiegeGame& g, const Shot& s) {
+Outcome fire(SnoutAndSiegeGame& g, const Shot& s, int maxFrames = 60 * 30) {
     Outcome o;
     o.birdsBefore = aliveBirds(g);
     float a = s.angleDeg * PI / 180.0f;
     float len = MAX_PULL * s.power;
     g.launchCurrentPig(Vec2(-std::cos(a) * len, std::sin(a) * len));
     bool abilityDone = false;
-    for (int f = 0; f < 60 * 30; ++f) {
+    for (int f = 0; f < maxFrames; ++f) {
         float t = f * kDt;
         if (!abilityDone && s.abilityAt >= 0.0f && t >= s.abilityAt) {
             g.activateMidAirAbility();
@@ -399,7 +400,15 @@ int main(int argc, char** argv) {
             if (static_cast<int>(plan.size()) > shots) plan.resize(shots);
         }
         startLevel(g, idx);
-        for (const auto& s : plan) fire(g, s);
+        // Optional 5th argument: freeze the last shot that many seconds after launch.
+        float freezeAt = argc > 5 ? static_cast<float>(std::atof(argv[5])) : -1.0f;
+        for (size_t i = 0; i < plan.size(); ++i) {
+            bool last = (i + 1 == plan.size());
+            fire(g, plan[i], (last && freezeAt > 0.0f) ? static_cast<int>(freezeAt * 60.0f) : 60 * 30);
+        }
+        // Hide the results card so the battlefield stays visible.
+        g.levelComplete = false;
+        g.levelFailed = false;
         // Show the last shot's path as the ghost trajectory.
         if (!g.currentFlightTrail.empty()) g.ghostTrajectory = g.currentFlightTrail;
         g.floatScores.clear();
