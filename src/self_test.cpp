@@ -990,6 +990,17 @@ int runSelfTestAndExportScreenshots(bool exportBmp) {
                           << warnings;
                 return 69;
             }
+            // Gear a bird visibly wears must actually work: non-zero HP, not above its max.
+            for (const auto& t : L.birds) {
+                bool badGear = (t.hasHelmet && (t.helmetHp <= 0.0f || t.helmetHp > t.maxHelmetHp)) ||
+                               (t.hasShield && (t.shieldHp <= 0.0f || t.shieldHp > t.maxShieldHp)) ||
+                               (t.inZeppelin && (t.balloonHp <= 0.0f || t.balloonHp > t.maxBalloonHp));
+                if (badGear) {
+                    std::cerr << "[SELF-TEST] Level " << (i + 1) << " has a bird with zero-HP or overfull "
+                              << "helmet/shield/zeppelin at (" << t.pos.x << ", " << t.pos.y << ")!\n";
+                    return 72;
+                }
+            }
         }
         SnoutAndSiegeGame scratch;
         std::cerr << "[SELF-TEST] (expected) ";
