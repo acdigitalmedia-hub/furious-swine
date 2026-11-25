@@ -195,7 +195,10 @@ public:
     // Fortress Architect editor, saved custom levels, and Endless mode.
     static BirdTarget makeBird(BirdClass kind, float x, float y, bool withHelmet = false, bool withShield = false, bool withZeppelin = false);
 
-    void initLevels();
+    // Loads the 150 campaign/vault levels from <dir>/level_NNN.cfg. Returns
+    // false (after logging) if any file is missing or unreadable.
+    bool initLevels(const std::string& dir = "assets/levels");
+    static void calibrateStarThresholds(LevelSpec& L);
 
     void loadCustomLevelSpec(const LevelSpec& L);
 
@@ -203,7 +206,6 @@ public:
 
     void saveCustomLevel(int slot);
 
-    static bool isSaneCoord(float v);
 
     // Pendulum as placed by the Fortress Architect; also used when reloading a
     // saved custom level so a reloaded pendulum matches the one that was placed.
@@ -288,10 +290,6 @@ public:
     void updateCamera(float dt);
 
     void updateGame(float frameTime);
-
-    // Writes to a temp file and renames it over the real one, so a crash or a
-    // full disk mid-write can never leave the player with a truncated save.
-    static bool writeFileAtomically(const std::string& path, const std::string& contents);
 
     void saveProgress();
 

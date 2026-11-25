@@ -147,13 +147,18 @@ it exits, including when a check fails.
 - `src/asset_bootstrap.cpp`: procedural generation of default sprites, sounds, and music.
 - `src/game.h`: the `SnoutAndSiegeGame` class, implemented across:
   - `game.cpp`: core state, achievements, level flow, saves, camera, UI clicks
-  - `levels.cpp`: the 150 campaign and vault levels
+  - `levels.cpp`: loads the campaign levels and computes star thresholds
   - `editor.cpp`: Fortress Architect editor and custom level files
   - `endless.cpp`: Endless Siege Gauntlet wave generation
   - `combat.cpp`: pig abilities, explosions, damage, particle effects
   - `physics.cpp`: rigid-body simulation and collision resolution
   - `render_world.cpp` / `render_ui.cpp`: world rendering / menus, editor UI, HUD
+- `src/level_format.h/.cpp`: the level text format shared by campaign levels
+  and editor save slots (documented at the top of `level_format.h`).
 - `src/self_test.h/.cpp`: headless self-test suite (`--self-test`).
+- `assets/levels/level_001.cfg` … `level_150.cfg`: the campaign (1–140) and
+  Secret Vault (141–150) levels as editable text. Restart the game after
+  editing; `--self-test` checks every level loads and settles stably.
 - `assets/`: sprite, audio, and asset configuration files.
 - `Makefile` / `CMakeLists.txt`: Linux build definitions.
 - `CHANGELOG.md`: development history.

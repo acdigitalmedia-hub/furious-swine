@@ -1,5 +1,6 @@
 #include "self_test.h"
 #include "game.h"
+#include "level_format.h"
 
 // ============================================================================
 // AUTOMATED HEADLESS SELF-TEST & SCREENSHOT VERIFICATION SUITE
@@ -50,13 +51,13 @@ int runSelfTestAndExportScreenshots(bool exportBmp) {
 
     SnoutAndSiegeGame game;
     bool assetsOk = game.assets.loadAll(ren);
-    game.initLevels();
+    bool levelsOk = game.initLevels();
 
     std::cout << "[SELF-TEST] Backend: " << (sdlRuntimeLoaded() ? "SDL2 Dynamic Runtime" : "X11/Software Fallback")
               << " | Loaded " << game.assets.loadedSpriteCount << " BMP sprites, "
               << game.assets.loadedSoundCount << " WAV sounds, and "
               << game.levels.size() << " levels.\n";
-    if (!assetsOk || game.assets.loadedSpriteCount < 23 || game.assets.loadedSoundCount < 25 ||
+    if (!assetsOk || !levelsOk || game.assets.loadedSpriteCount < 23 || game.assets.loadedSoundCount < 25 ||
         static_cast<int>(game.levels.size()) != NUM_LEVELS) {
         std::cerr << "[SELF-TEST] Asset or " << NUM_LEVELS << "-level count verification failed!\n";
         return 2;
@@ -971,6 +972,52 @@ int runSelfTestAndExportScreenshots(bool exportBmp) {
         if (!game.customLevel.birds.empty()) {
             std::cerr << "[SELF-TEST] Editor eraser failed to remove the placed bird!\n";
             return 68;
+        }
+    }
+
+    // Level data files: every campaign level re-serializes to an equivalent
+    // level, and a missing level directory is reported instead of crashing.
+    {
+        for (int i = 0; i < NUM_LEVELS; ++i) {
+            const LevelSpec& L = game.levels[i];
+            std::string text = serializeLevel(L, -1, true);
+            ParsedLevel back;
+            std::string warnings;
+            if (!parseLevelText(text, back, &warnings) || !warnings.empty() ||
+                serializeLevel(back.spec, -1, true) != text ||
+                back.spec.blocks.size() != L.blocks.size() || back.spec.birds.size() != L.birds.size()) {
+                std::cerr << "[SELF-TEST] Level " << (i + 1) << " did not round-trip through the level format!\n"
+                          << warnings;
+                return 69;
+            }
+        }
+        SnoutAndSiegeGame scratch;
+        std::cerr << "[SELF-TEST] (expected) ";
+        if (scratch.initLevels("assets/levels-does-not-exist") ||
+            static_cast<int>(scratch.levels.size()) != NUM_LEVELS) {
+            std::cerr << "[SELF-TEST] Missing level directory was not reported, or left levels misaligned!\n";
+            return 70;
+        }
+    }
+
+    // Older editor saves (numeric kinds, "bird = kind x y helmet") still load.
+    {
+        {
+            std::ofstream legacy("custom_siege_2.cfg");
+            legacy << "theme = 3\nwind = 30\nstorm = 1\ntruffle.exists = 1\ntruffle.x = 700\ntruffle.y = 300\n"
+                   << "block = 2 780 580 24 100\nbird = 4 840 500 1\npendulum = 860 200 85 1\n";
+        }
+        game.screen = ScreenState::EDITOR;
+        game.isTestPlaying = false;
+        game.loadCustomLevel(2);
+        const LevelSpec& c = game.customLevel;
+        if (game.editorTheme != 3 || game.editorWind != 30.0f || !game.editorStorm || !c.hasTruffle ||
+            c.blocks.size() != 1 || c.blocks[0].mat != MaterialTier::STONE ||
+            c.birds.size() != 1 || c.birds[0].kind != BirdClass::CONDOR || !c.birds[0].hasHelmet ||
+            !c.birds[0].inZeppelin || c.pendulums.size() != 1 || c.pendulums[0].radius != 18.0f ||
+            !c.pendulums[0].spiked) {
+            std::cerr << "[SELF-TEST] Legacy-format custom level did not load correctly!\n";
+            return 71;
         }
     }
 

@@ -1,34 +1,22 @@
 #include "game.h"
+#include "level_format.h"
 
 void SnoutAndSiegeGame::saveCustomLevel(int slot) {
     if (slot < 1 || slot > 3) slot = 1;
     std::string filename = "custom_siege_" + std::to_string(slot) + ".cfg";
-    std::ostringstream out;
-    out << "theme = " << editorTheme << "\n";
-    out << "wind = " << editorWind << "\n";
-    out << "storm = " << (editorStorm ? 1 : 0) << "\n";
-    out << "truffle.exists = " << (customLevel.hasTruffle ? 1 : 0) << "\n";
-    out << "truffle.x = " << customLevel.trufflePos.x << "\n";
-    out << "truffle.y = " << customLevel.trufflePos.y << "\n";
-    for (const auto& b : customLevel.blocks) {
-        out << "block = " << static_cast<int>(b.mat) << " " << b.pos.x << " " << b.pos.y << " " << b.w << " " << b.h << "\n";
-    }
-    for (const auto& t : customLevel.birds) {
-        out << "bird = " << static_cast<int>(t.kind) << " " << t.pos.x << " " << t.pos.y << " " << (t.hasHelmet ? 1 : 0) << "\n";
-    }
-    for (const auto& p : customLevel.pendulums) {
-        out << "pendulum = " << p.anchor.x << " " << p.anchor.y << " " << p.length << " " << (p.spiked ? 1 : 0) << "\n";
-    }
-    if (!writeFileAtomically(filename, out.str())) {
+    // Same format as the campaign levels in assets/levels (see level_format.h).
+    LevelSpec L = customLevel;
+    L.name.clear();
+    L.subtitle.clear();
+    L.pigQueue.clear();  // test play always uses the full arsenal
+    L.wind = editorWind;
+    L.hasStorm = editorStorm;
+    if (!writeTextFileAtomically(filename, serializeLevel(L, editorTheme))) {
         floatScores.push_back({{WINDOW_W * 0.5f, 160.0f}, "SAVE FAILED!", {255, 120, 120, 255}, 1.6f, 1.6f});
         return;
     }
     floatScores.push_back({{WINDOW_W * 0.5f, 160.0f}, "SIEGE SLOT " + std::to_string(slot) + " SAVED!", {140, 240, 180, 255}, 1.4f, 1.4f});
     assets.playSound("sound.ui_click");
-}
-
-bool SnoutAndSiegeGame::isSaneCoord(float v) {
-    return std::isfinite(v) && v > -2000.0f && v < 4000.0f;
 }
 
 PendulumBody SnoutAndSiegeGame::makeEditorPendulum(float ax, float ay, bool spiked, float length) {
@@ -46,65 +34,23 @@ void SnoutAndSiegeGame::loadCustomLevel(int slot) {
     if (slot < 1 || slot > 3) slot = 1;
     customSlot = slot;
     std::string filename = "custom_siege_" + std::to_string(slot) + ".cfg";
-    std::ifstream in(filename);
-    customLevel = LevelSpec{};
-    customLevel.name = "CUSTOM SIEGE " + std::to_string(slot);
-    customLevel.subtitle = "FORTRESS ARCHITECT SANDBOX";
-    customLevel.pigQueue = {PigType::TROTTER, PigType::TURBO, PigType::SPLIT, PigType::BOMB, PigType::GLIDER};
 
-    if (in.good()) {
-        std::string line;
-        while (std::getline(in, line)) {
-            if (line.rfind("theme = ", 0) == 0) {
-                editorTheme = std::clamp(std::atoi(line.substr(8).c_str()), 0, 5);
-            } else if (line.rfind("wind = ", 0) == 0) {
-                float w = static_cast<float>(std::atof(line.substr(7).c_str()));
-                editorWind = std::isfinite(w) ? clampf(w, -120.0f, 120.0f) : 0.0f;
-                customLevel.wind = editorWind;
-            } else if (line.rfind("storm = ", 0) == 0) {
-                editorStorm = (std::atoi(line.substr(8).c_str()) != 0);
-                customLevel.hasStorm = editorStorm;
-            } else if (line.rfind("truffle.exists = ", 0) == 0) {
-                customLevel.hasTruffle = (std::atoi(line.substr(17).c_str()) != 0);
-            } else if (line.rfind("truffle.x = ", 0) == 0) {
-                float v = static_cast<float>(std::atof(line.substr(12).c_str()));
-                if (isSaneCoord(v)) customLevel.trufflePos.x = v;
-            } else if (line.rfind("truffle.y = ", 0) == 0) {
-                float v = static_cast<float>(std::atof(line.substr(12).c_str()));
-                if (isSaneCoord(v)) customLevel.trufflePos.y = v;
-            } else if (line.rfind("block = ", 0) == 0) {
-                std::stringstream ss(line.substr(8));
-                int matInt; float bx, by, bw, bh;
-                if ((ss >> matInt >> bx >> by >> bw >> bh) &&
-                    matInt >= 0 && matInt <= static_cast<int>(MaterialTier::MAGMA_VENT) &&
-                    isSaneCoord(bx) && isSaneCoord(by) &&
-                    std::isfinite(bw) && std::isfinite(bh) &&
-                    bw >= 4.0f && bh >= 4.0f && bw <= 1000.0f && bh <= 1000.0f) {
-                    customLevel.blocks.push_back(makeBlock(static_cast<MaterialTier>(matInt), bx, by, bw, bh));
-                }
-            } else if (line.rfind("bird = ", 0) == 0) {
-                std::stringstream ss(line.substr(7));
-                int kInt, helmInt; float tx, ty;
-                if ((ss >> kInt >> tx >> ty >> helmInt) &&
-                    kInt >= 0 && kInt <= static_cast<int>(BirdClass::CONDOR) &&
-                    isSaneCoord(tx) && isSaneCoord(ty)) {
-                    customLevel.birds.push_back(makeBird(static_cast<BirdClass>(kInt), tx, ty, helmInt != 0));
-                }
-            } else if (line.rfind("pendulum = ", 0) == 0) {
-                std::stringstream ss(line.substr(11));
-                float ax, ay, len; int spk;
-                if ((ss >> ax >> ay >> len >> spk) &&
-                    isSaneCoord(ax) && isSaneCoord(ay) && std::isfinite(len) && len > 10.0f && len < 1000.0f) {
-                    customLevel.pendulums.push_back(makeEditorPendulum(ax, ay, spk != 0, len));
-                }
-            }
-        }
+    std::string text;
+    ParsedLevel parsed;
+    std::string warnings;
+    bool loaded = readTextFile(filename, text) && parseLevelText(text, parsed, &warnings);
+    if (!warnings.empty()) std::cerr << "[EDITOR] " << filename << ":\n" << warnings;
+
+    if (loaded) {
+        customLevel = parsed.spec;
+        editorTheme = (parsed.theme >= 0) ? parsed.theme : (slot - 1) % 6;
+        editorWind = clampf(customLevel.wind, -120.0f, 120.0f);
+        editorStorm = customLevel.hasStorm;
     } else {
+        customLevel = LevelSpec{};
         editorTheme = (slot - 1) % 6;
         editorWind = 0.0f;
         editorStorm = false;
-        customLevel.wind = 0.0f;
-        customLevel.hasStorm = false;
         customLevel.blocks.push_back(makeBlock(MaterialTier::STONE, 780.0f, GROUND_Y - 11.0f, 160.0f, 22.0f));
         customLevel.blocks.push_back(makeBlock(MaterialTier::TIMBER, 725.0f, GROUND_Y - 55.0f, 20.0f, 80.0f));
         customLevel.blocks.push_back(makeBlock(MaterialTier::TIMBER, 835.0f, GROUND_Y - 55.0f, 20.0f, 80.0f));
@@ -116,6 +62,11 @@ void SnoutAndSiegeGame::loadCustomLevel(int slot) {
         customLevel.hasTruffle = true;
         customLevel.trufflePos = {780.0f, GROUND_Y - 175.0f};
     }
+    customLevel.wind = editorWind;
+    customLevel.hasStorm = editorStorm;
+    customLevel.name = "CUSTOM SIEGE " + std::to_string(slot);
+    customLevel.subtitle = "FORTRESS ARCHITECT SANDBOX";
+    customLevel.pigQueue = {PigType::TROTTER, PigType::TURBO, PigType::SPLIT, PigType::BOMB, PigType::GLIDER};
     customBackup = customLevel;
 }
 

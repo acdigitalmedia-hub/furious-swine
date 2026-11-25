@@ -1,4 +1,5 @@
 #include "game.h"
+#include "level_format.h"
 
 SnoutAndSiegeGame::SnoutAndSiegeGame() {
     initAchievements();
@@ -739,22 +740,6 @@ void SnoutAndSiegeGame::updateGame(float frameTime) {
     }
 }
 
-bool SnoutAndSiegeGame::writeFileAtomically(const std::string& path, const std::string& contents) {
-    std::string tmp = path + ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) return false;
-        out << contents;
-        out.flush();
-        if (!out) { std::remove(tmp.c_str()); return false; }
-    }
-    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
-        std::remove(tmp.c_str());
-        return false;
-    }
-    return true;
-}
-
 void SnoutAndSiegeGame::saveProgress() {
     std::ostringstream out;
     out << "audio.music_muted = " << (assets.musicMuted ? 1 : 0) << "\n";
@@ -767,7 +752,7 @@ void SnoutAndSiegeGame::saveProgress() {
         out << "level." << (i + 1) << ".score = " << bestScores[i] << "\n";
         out << "level." << (i + 1) << ".truffle = " << (trufflesFound[i] ? 1 : 0) << "\n";
     }
-    if (!writeFileAtomically("save_progress.cfg", out.str())) {
+    if (!writeTextFileAtomically("save_progress.cfg", out.str())) {
         std::cerr << "[SAVE] Failed to write save_progress.cfg\n";
     }
 }

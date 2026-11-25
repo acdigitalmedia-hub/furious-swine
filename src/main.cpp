@@ -58,7 +58,14 @@ int main(int argc, char** argv) {
     SnoutAndSiegeGame game;
     game.appWindow = window;
     game.assets.loadAll(renderer);
-    game.initLevels();
+    if (!game.initLevels()) {
+        std::cerr << "Failed to load level data from assets/levels/. "
+                     "Run the game from the project root directory.\n";
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
     game.loadProgress();
     game.loadLevel(0);
     game.screen = ScreenState::TITLE;
