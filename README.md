@@ -111,9 +111,12 @@ custom levels, and exported screenshots are written to the current directory.
 
 ### Using Make
 ```bash
-make
+make -j"$(nproc)"
 ./furious_swine
 ```
+
+Object files go to `build/obj/`; only the files you change (and files
+that include a header you change) are rebuilt.
 
 ### Using CMake
 ```bash
@@ -129,13 +132,28 @@ cmake --build build
 ./furious_swine --export-screenshots
 ```
 
-The self-test runs headlessly and needs no desktop session. It uses custom
-level slot 2, so run it in a temporary copy of the project if you have saved
-custom levels you want to keep.
+The self-test runs headlessly and needs no desktop session. It temporarily
+overwrites `save_progress.cfg` and custom level slot 2, and restores both when
+it exits, including when a check fails.
 
 ## Project Layout
 
-- `src/furious_swine.cpp`: game implementation and built-in self-tests.
+- `src/main.cpp`: entry point, window setup, and the input/event loop.
+- `src/sdl_runtime.h/.cpp`: SDL2 ABI declarations, `dlopen()` loader, and
+  the X11 + software-renderer fallback (no SDL2 headers needed at build time).
+- `src/common.h`: shared constants, `Vec2` math, enums, and entity structs.
+- `src/draw.h/.cpp`: bitmap font, drawing primitives, origami pig/bird models.
+- `src/assets.h/.cpp`: asset manifest, sprite/WAV loading, 16-voice audio mixer.
+- `src/asset_bootstrap.cpp`: procedural generation of default sprites, sounds, and music.
+- `src/game.h`: the `SnoutAndSiegeGame` class, implemented across:
+  - `game.cpp`: core state, achievements, level flow, saves, camera, UI clicks
+  - `levels.cpp`: the 150 campaign and vault levels
+  - `editor.cpp`: Fortress Architect editor and custom level files
+  - `endless.cpp`: Endless Siege Gauntlet wave generation
+  - `combat.cpp`: pig abilities, explosions, damage, particle effects
+  - `physics.cpp`: rigid-body simulation and collision resolution
+  - `render_world.cpp` / `render_ui.cpp`: world rendering / menus, editor UI, HUD
+- `src/self_test.h/.cpp`: headless self-test suite (`--self-test`).
 - `assets/`: sprite, audio, and asset configuration files.
 - `Makefile` / `CMakeLists.txt`: Linux build definitions.
 - `CHANGELOG.md`: development history.
