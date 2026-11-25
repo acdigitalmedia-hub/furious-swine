@@ -726,6 +726,10 @@ void AssetPipeline::bootstrapDefaultAssets() {
         mf << "sound.bird_hurt      = assets/sounds/bird_hurt.wav\n\n";
         mf << "music.title          = assets/music/bgm_title.wav\n";
         mf << "music.battle         = assets/music/bgm_battle.wav\n";
+        mf << "music.frost          = assets/music/bgm_frost.wav\n";
+        mf << "music.volcano        = assets/music/bgm_volcano.wav\n";
+        mf << "music.mystic         = assets/music/bgm_mystic.wav\n";
+        mf << "music.heroic         = assets/music/bgm_heroic.wav\n";
     }
     mfCheck.close();
 

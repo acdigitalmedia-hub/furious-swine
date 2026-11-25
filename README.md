@@ -183,6 +183,8 @@ Set `LEVELS_DIR=/some/dir` to test edited copies of the level files.
 - `tools/level_lab.cpp`: level design/analysis tool (`make tools`).
 - `tools/make_font_atlas.py`: bakes `assets/fonts/ui.font` from a TTF (needs
   Pillow; only required if you change the font).
+- `tools/make_music.py`: composes the chapter battle themes (frost, volcano,
+  mystic, heroic) in `assets/music/` (needs numpy).
 - `tools/make_sounds.py`: renders every sound effect in `assets/sounds/`
   (needs numpy). Edit a sound's recipe and re-run, e.g.
   `python3 tools/make_sounds.py boing hit_ice`.

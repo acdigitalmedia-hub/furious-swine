@@ -696,10 +696,22 @@ void SnoutAndSiegeGame::updateCamera(float dt) {
     if (std::abs(camPos.y - camTarget.y) < 0.25f) camPos.y = camTarget.y;
 }
 
+std::string SnoutAndSiegeGame::battleMusicKey() const {
+    // One theme per group of chapters (see tools/make_music.py).
+    static const char* const kByChapter[NUM_CHAPTERS + 1] = {
+        "music.battle", "music.battle", "music.battle",                   // meadow, autumn, canyon
+        "music.frost", "music.volcano", "music.mystic", "music.mystic",  // frostpeak, obsidian, bamboo, ruins
+        "music.heroic", "music.frost", "music.volcano", "music.heroic",  // zephyr, glacial, foundry, thunderhead
+        "music.mystic", "music.heroic", "music.heroic", "music.mystic"}; // solstice, colosseum, sanctum, vaults
+    const char* key = kByChapter[std::clamp(getActiveChapter(), 0, NUM_CHAPTERS)];
+    // Fall back to the original battle theme if a track is missing.
+    return assets.musicTracks.count(key) ? key : "music.battle";
+}
+
 void SnoutAndSiegeGame::updateGame(float frameTime) {
     updateAchievementToast(frameTime);
     if (screen == ScreenState::PLAYING || (screen == ScreenState::EDITOR && isTestPlaying) || screen == ScreenState::ENDLESS) {
-        assets.playMusic("music.battle");
+        assets.playMusic(battleMusicKey());
         if (gameplayBlocked()) return;  // pause menu or tip card is up
         levelTruffle.pulseTime += frameTime;
         if (levelComplete) {

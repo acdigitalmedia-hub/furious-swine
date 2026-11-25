@@ -375,6 +375,9 @@ public:
 
     void renderResultsCard(SDL_Renderer* ren);
 
+    // Music key for the chapter (or editor/endless backdrop) being played.
+    std::string battleMusicKey() const;
+
     // Adds a clickable kit button to activeButtons and draws it.
     void uiButton(SDL_Renderer* ren, const std::string& id, SDL_FRect r, const std::string& label,
                   SDL_Color base, UiIcon icon = UiIcon::NONE, bool selected = false, bool off = false,

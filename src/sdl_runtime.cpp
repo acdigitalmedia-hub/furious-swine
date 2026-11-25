@@ -26,6 +26,7 @@
 struct SoftTexture {
     int w = 0, h = 0;
     bool linear = false;
+    bool whiteRGB = false;  // every texel is white: only alpha matters (font atlas)
     std::vector<uint32_t> pixels;
 };
 
@@ -369,6 +370,22 @@ static void sampleTexel(const SoftTexture& t, float u, float v, float out[4]) {
     }
 }
 
+// Alpha-only bilinear/nearest sample for white textures.
+static float sampleAlpha(const SoftTexture& t, float u, float v) {
+    auto a = [&](int x, int y) {
+        x = std::clamp(x, 0, t.w - 1);
+        y = std::clamp(y, 0, t.h - 1);
+        return static_cast<float>(t.pixels[y * t.w + x] >> 24);
+    };
+    if (!t.linear) return a(static_cast<int>(std::floor(u)), static_cast<int>(std::floor(v)));
+    float fx = u - 0.5f, fy = v - 0.5f;
+    int x0 = static_cast<int>(std::floor(fx)), y0 = static_cast<int>(std::floor(fy));
+    float tx = fx - x0, ty = fy - y0;
+    float top = a(x0, y0) + (a(x0 + 1, y0) - a(x0, y0)) * tx;
+    float bot = a(x0, y0 + 1) + (a(x0 + 1, y0 + 1) - a(x0, y0 + 1)) * tx;
+    return top + (bot - top) * ty;
+}
+
 int SDL_Init(uint32_t flags) {
     gSDL.tryLoad();
     if (gSDL.loaded) return gSDL.pSDL_Init(flags);
@@ -528,7 +545,13 @@ int SDL_RenderGeometry(SDL_Renderer* renderer, SDL_Texture* texture,
                 float g = v0.color.g * w0 + v1.color.g * w1 + v2.color.g * w2;
                 float b = v0.color.b * w0 + v1.color.b * w1 + v2.color.b * w2;
                 float a = v0.color.a * w0 + v1.color.a * w1 + v2.color.a * w2;
-                if (tex) {
+                if (tex && tex->whiteRGB) {
+                    float u = (v0.tex_coord.x * w0 + v1.tex_coord.x * w1 + v2.tex_coord.x * w2) * tex->w;
+                    float v = (v0.tex_coord.y * w0 + v1.tex_coord.y * w1 + v2.tex_coord.y * w2) * tex->h;
+                    float ta = sampleAlpha(*tex, u, v);
+                    if (ta < 0.5f) continue;  // transparent texel: nothing to blend
+                    a *= ta / 255.0f;
+                } else if (tex) {
                     // Texel modulated by the interpolated vertex colour, as SDL does.
                     float u = (v0.tex_coord.x * w0 + v1.tex_coord.x * w1 + v2.tex_coord.x * w2) * tex->w;
                     float v = (v0.tex_coord.y * w0 + v1.tex_coord.y * w1 + v2.tex_coord.y * w2) * tex->h;
@@ -627,6 +650,8 @@ SDL_Texture* SDL_CreateTextureFromSurface(SDL_Renderer* renderer, SDL_Surface* s
     st->h = surface->h;
     const uint32_t* src = static_cast<const uint32_t*>(surface->pixels);
     st->pixels.assign(src, src + st->w * st->h);
+    st->whiteRGB = std::all_of(st->pixels.begin(), st->pixels.end(),
+                               [](uint32_t p) { return (p & 0x00FFFFFFu) == 0x00FFFFFFu; });
     return reinterpret_cast<SDL_Texture*>(st);
 }
 
