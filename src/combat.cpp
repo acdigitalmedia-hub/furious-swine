@@ -647,6 +647,14 @@ void SnoutAndSiegeGame::damageBlock(BlockBody& b, float dmg) {
     } else if (dmg > 10.0f) {
         spawnSplinters(b.pos, b.mat, 4, 110.0f);
         if (dmg > 45.0f) addTrauma(0.08f);
+        // Audible knock for hits that don't break the block, louder for harder hits.
+        if (dmg > 16.0f) {
+            const char* knock = (b.mat == MaterialTier::STONE) ? "sound.knock_stone" :
+                                (b.mat == MaterialTier::ICE)   ? "sound.knock_ice" :
+                                (b.mat == MaterialTier::TWIG || b.mat == MaterialTier::TIMBER ||
+                                 b.mat == MaterialTier::TNT)   ? "sound.knock_wood" : nullptr;
+            if (knock) assets.playSound(knock, clampf(dmg / 90.0f, 0.3f, 1.0f));
+        }
     }
 }
 
@@ -791,6 +799,9 @@ void SnoutAndSiegeGame::damageBird(BirdTarget& t, float dmg) {
         if (dmg <= 2.0f) return;
     }
     t.hp -= dmg;
+    if (t.hp > 0.0f && dmg > 12.0f) {
+        assets.playSound("sound.bird_hurt", clampf(dmg / 60.0f, 0.4f, 1.0f));
+    }
     if (screen == ScreenState::ENDLESS && dmg > 0.0f) {
         endlessScore += static_cast<int>(dmg * 10.0f * endlessComboMultiplier);
         endlessComboMultiplier = std::min(5.0f, endlessComboMultiplier + 0.1f);

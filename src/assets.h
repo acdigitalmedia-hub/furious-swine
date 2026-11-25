@@ -39,7 +39,8 @@ public:
     struct SfxVoice {
         const int16_t* samples = nullptr;
         size_t length = 0;
-        size_t cursor = 0;
+        double cursor = 0.0;       // fractional read position (playback rate varies)
+        double rate = 1.0;
         float gain = 1.0f;
         int priority = 0;
         bool active = false;
@@ -50,7 +51,8 @@ public:
 
     float currentBgmGain = 0.32f;
     float targetBgmGain = 0.32f;
-    uint32_t lastHitSoundTicks = 0;
+    std::map<std::string, uint32_t> lastPlayTicks;  // per-sound de-bounce for debris hits
+    uint32_t variationRng = 0x9E3779B9u;            // pitch/gain variation between plays
 
     uint32_t audioDevice = 0;
     bool audioEnabled = true;

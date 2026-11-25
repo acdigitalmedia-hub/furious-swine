@@ -183,6 +183,9 @@ Set `LEVELS_DIR=/some/dir` to test edited copies of the level files.
 - `tools/level_lab.cpp`: level design/analysis tool (`make tools`).
 - `tools/make_font_atlas.py`: bakes `assets/fonts/ui.font` from a TTF (needs
   Pillow; only required if you change the font).
+- `tools/make_sounds.py`: renders every sound effect in `assets/sounds/`
+  (needs numpy). Edit a sound's recipe and re-run, e.g.
+  `python3 tools/make_sounds.py boing hit_ice`.
 - `assets/levels/level_001.cfg` … `level_150.cfg`: the campaign (1–140) and
   Secret Vault (141–150) levels as editable text. Restart the game after
   editing; `--self-test` checks every level loads and settles stably.

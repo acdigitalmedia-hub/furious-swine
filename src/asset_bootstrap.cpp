@@ -718,7 +718,12 @@ void AssetPipeline::bootstrapDefaultAssets() {
         mf << "sound.shield         = assets/sounds/shield.wav\n";
         mf << "sound.zeppelin       = assets/sounds/zeppelin.wav\n";
         mf << "sound.ui_click       = assets/sounds/ui_click.wav\n";
-        mf << "sound.highscore      = assets/sounds/highscore.wav\n\n";
+        mf << "sound.highscore      = assets/sounds/highscore.wav\n";
+        mf << "sound.knock_wood     = assets/sounds/knock_wood.wav\n";
+        mf << "sound.knock_stone    = assets/sounds/knock_stone.wav\n";
+        mf << "sound.knock_ice      = assets/sounds/knock_ice.wav\n";
+        mf << "sound.oink           = assets/sounds/oink.wav\n";
+        mf << "sound.bird_hurt      = assets/sounds/bird_hurt.wav\n\n";
         mf << "music.title          = assets/music/bgm_title.wav\n";
         mf << "music.battle         = assets/music/bgm_battle.wav\n";
     }

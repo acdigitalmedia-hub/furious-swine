@@ -130,8 +130,13 @@ void AssetPipeline::audioMixerCallback(void* userdata, uint8_t* stream, int len)
         if (!pipe->sfxMuted) {
             for (auto& v : pipe->sfxVoices) {
                 if (v.active && v.samples && v.cursor < v.length) {
-                    s += v.samples[v.cursor] * v.gain;
-                    v.cursor++;
+                    // Linear interpolation so voices can play slightly sharp/flat.
+                    size_t i0 = static_cast<size_t>(v.cursor);
+                    float frac = static_cast<float>(v.cursor - static_cast<double>(i0));
+                    float a = v.samples[i0];
+                    float b = (i0 + 1 < v.length) ? v.samples[i0 + 1] : 0.0f;
+                    s += (a + (b - a) * frac) * v.gain;
+                    v.cursor += v.rate;
                     if (v.cursor >= v.length) {
                         v.active = false;
                         v.samples = nullptr;
@@ -154,8 +159,10 @@ int AssetPipeline::getSoundPriority(const std::string& key) {
     if (key == "sound.slam" || key == "sound.dash" ||
         key == "sound.split" || key == "sound.launch" || key == "sound.boing" || key == "sound.magma" || key == "sound.glide") return 3;
     if (key == "sound.bird_defeat" || key == "sound.hit_metal" || key == "sound.wind") return 2;
+    if (key == "sound.oink" || key == "sound.bird_hurt") return 2;
     if (key == "sound.hit_stone" || key == "sound.hit_timber" ||
         key == "sound.hit_twig" || key == "sound.hit_ice") return 1;
+    if (key == "sound.knock_wood" || key == "sound.knock_stone" || key == "sound.knock_ice") return 0;
     return 0;
 }
 
@@ -178,11 +185,26 @@ void AssetPipeline::playSound(const std::string& key, float gain) {
     uint32_t now = SDL_GetTicks();
     int prio = getSoundPriority(key);
 
-    // De-bounce rapid repeated debris hits to prevent audio clutter
-    if (prio == 1 && (now - lastHitSoundTicks) < 45) {
-        return;
+    // De-bounce rapid repeats of the same debris sound to prevent clutter.
+    if (prio <= 1) {
+        uint32_t& last = lastPlayTicks[key];
+        if (last != 0 && (now - last) < 40) return;
+        last = now;
     }
-    if (prio == 1) lastHitSoundTicks = now;
+
+    // Small random pitch/volume variation so repeated sounds don't sound
+    // machine-gunned. Musical stings stay in tune.
+    auto rand01 = [&]() {
+        variationRng ^= variationRng << 13;
+        variationRng ^= variationRng >> 17;
+        variationRng ^= variationRng << 5;
+        return (variationRng & 0xFFFFFF) / static_cast<float>(0x1000000);
+    };
+    bool musical = (key == "sound.victory" || key == "sound.achievement" || key == "sound.truffle" ||
+                    key == "sound.highscore");
+    float pitchSpread = musical ? 0.0f : (prio <= 2 ? 0.07f : 0.04f);
+    double rate = 1.0 + (rand01() * 2.0f - 1.0f) * pitchSpread;
+    float gainJitter = musical ? 1.0f : 0.9f + 0.2f * rand01();
 
     const int16_t* pcm = it->second.pcm.data();
     size_t len = it->second.pcm.size();
@@ -194,7 +216,7 @@ void AssetPipeline::playSound(const std::string& key, float gain) {
         // Find an idle voice channel, or steal lowest priority / furthest progressed channel
         int bestIdx = -1;
         int lowestPrio = 999;
-        size_t maxCursor = 0;
+        double maxCursor = 0.0;
 
         for (size_t i = 0; i < MAX_SFX_VOICES; ++i) {
             if (!sfxVoices[i].active) {
@@ -213,8 +235,9 @@ void AssetPipeline::playSound(const std::string& key, float gain) {
             if (!sfxVoices[bestIdx].active || prio >= sfxVoices[bestIdx].priority) {
                 sfxVoices[bestIdx].samples = pcm;
                 sfxVoices[bestIdx].length = len;
-                sfxVoices[bestIdx].cursor = 0;
-                sfxVoices[bestIdx].gain = gain * 0.90f;
+                sfxVoices[bestIdx].cursor = 0.0;
+                sfxVoices[bestIdx].rate = rate;
+                sfxVoices[bestIdx].gain = gain * gainJitter * 0.90f;
                 sfxVoices[bestIdx].priority = prio;
                 sfxVoices[bestIdx].active = true;
             }

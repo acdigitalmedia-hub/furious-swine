@@ -429,6 +429,7 @@ void SnoutAndSiegeGame::launchCurrentPig(Vec2 pullVector) {
     currentFlightTrail.push_back({SLING_X, SLING_Y});
     addTrauma(0.12f);
     assets.playSound("sound.launch");
+    assets.playSound("sound.oink", 0.75f);
 
     shotBlocksDestroyed = 0;
     shotTntDetonated = 0;
