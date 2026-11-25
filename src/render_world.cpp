@@ -1,292 +1,67 @@
 #include "game.h"
 
+#include "scenery.h"
+
 int SnoutAndSiegeGame::getActiveChapter() const {
-    if (screen == ScreenState::EDITOR) return clampf(editorTheme, 0, 5);
-    if (screen == ScreenState::ENDLESS) return (endlessWave - 1) % 6;
+    if (screen == ScreenState::EDITOR) return std::clamp(editorTheme, 0, NUM_CHAPTERS);
+    // Menus show the chapter you're browsing (level select) or have reached (title).
+    if (screen == ScreenState::LEVEL_SELECT) return std::clamp(levelSelectPage, 0, NUM_CHAPTERS);
+    if (screen == ScreenState::TITLE || screen == ScreenState::ACHIEVEMENTS) {
+        return std::clamp(getHighestUnlockedLevel() / LEVELS_PER_CHAPTER, 0, NUM_CHAPTERS - 1);
+    }
+    if (screen == ScreenState::ENDLESS) return (endlessWave - 1) % (NUM_CHAPTERS + 1);
     if (currentLevelIdx >= NUM_CAMPAIGN_LEVELS) return 14;
     return clampf(currentLevelIdx / 10, 0, 13);
 }
 
 void SnoutAndSiegeGame::renderBackgroundBackdrop(SDL_Renderer* ren, Vec2 cam) {
-    int chap = getActiveChapter();
-    int theme = (chap == 14) ? 5 : (chap % 5);
-    float animT = SDL_GetTicks() * 0.001f;
+    renderScenery(ren, getActiveChapter(), cam, SDL_GetTicks() * 0.001f);
+}
 
-    // 6 Distinct Atmospheric Sky Palettes
-    SDL_Color topCol, midCol, botCol, groundCol, trimCol;
-    if (theme == 0) {
-        // Chapter I (Levels 1-10): Dawn Meadow & Golden Sunrise Valley
-        topCol = {28, 48, 88, 255};
-        midCol = {78, 114, 152, 255};
-        botCol = {238, 172, 102, 255};
-        groundCol = {48, 76, 44, 255};
-        trimCol   = {98, 146, 68, 255};
-    } else if (theme == 1) {
-        // Chapter II (Levels 11-20): Whispering Autumn Woodlands
-        topCol = {42, 24, 56, 255};
-        midCol = {112, 54, 68, 255};
-        botCol = {214, 116, 64, 255};
-        groundCol = {62, 40, 28, 255};
-        trimCol   = {156, 84, 38, 255};
-    } else if (theme == 2) {
-        // Chapter III (Levels 21-30): Basalt Canyon & Red Mesa Viaducts
-        topCol = {34, 24, 64, 255};
-        midCol = {124, 58, 78, 255};
-        botCol = {224, 112, 68, 255};
-        groundCol = {78, 46, 34, 255};
-        trimCol   = {164, 98, 56, 255};
-    } else if (theme == 3) {
-        // Chapter IV (Levels 31-40): Frostpeak Aurora Highlands
-        topCol = {14, 24, 46, 255};
-        midCol = {32, 64, 96, 255};
-        botCol = {88, 142, 172, 255};
-        groundCol = {46, 58, 74, 255};
-        trimCol   = {205, 228, 245, 255};
-    } else if (theme == 4) {
-        // Chapter V (Levels 41-50): Obsidian Imperial Citadel (Volcanic Eclipse)
-        topCol = {20, 14, 26, 255};
-        midCol = {68, 24, 34, 255};
-        botCol = {168, 52, 38, 255};
-        groundCol = {34, 30, 40, 255};
-        trimCol   = {128, 56, 44, 255};
-    } else {
-        // Chapter XV: The Secret Truffle Vaults (Twilight Amethyst & Royal Gold)
-        topCol = {24, 14, 42, 255};
-        midCol = {68, 32, 92, 255};
-        botCol = {186, 120, 54, 255};
-        groundCol = {28, 22, 44, 255};
-        trimCol   = {224, 178, 65, 255};
-    }
+namespace {
 
-    SDL_SetRenderDrawColor(ren, topCol.r, topCol.g, topCol.b, 255);
-    SDL_RenderClear(ren);
+// A rounded wooden limb with a dark outline and a lit edge.
+void woodLimb(SDL_Renderer* ren, Vec2 a, Vec2 b, float w) {
+    const SDL_Color outline{52, 30, 20, 255}, wood{150, 96, 56, 255}, light{196, 136, 84, 255};
+    drawThickLine(ren, a, b, w + 5.0f, outline);
+    ui::fillCircle(ren, a, (w + 5.0f) * 0.5f, outline, 14);
+    ui::fillCircle(ren, b, (w + 5.0f) * 0.5f, outline, 14);
+    drawThickLine(ren, a, b, w, wood);
+    ui::fillCircle(ren, a, w * 0.5f, wood, 14);
+    ui::fillCircle(ren, b, w * 0.5f, wood, 14);
+    Vec2 d = (b - a).normalized();
+    Vec2 n(-d.y, d.x);
+    drawThickLine(ren, a + n * (w * 0.22f), b + n * (w * 0.22f), w * 0.22f, light);
+}
 
-    // Extended 2-band vertical sky gradient with shake margins
-    float pad = 120.0f;
-    float midY = GROUND_Y * 0.56f - cam.y * 0.12f;
-    float skyBotY = GROUND_Y - cam.y;
-    SDL_Vertex skyVerts[6] = {
-        {{-pad, -pad},              topCol, {0, 0}},
-        {{WINDOW_W + pad, -pad},    topCol, {0, 0}},
-        {{WINDOW_W + pad, midY},    midCol, {0, 0}},
-        {{-pad, midY},              midCol, {0, 0}},
-        {{WINDOW_W + pad, skyBotY}, botCol, {0, 0}},
-        {{-pad, skyBotY},           botCol, {0, 0}}
-    };
-    int skyIdx[12] = {0, 1, 2, 0, 2, 3, 3, 2, 4, 3, 4, 5};
-    SDL_RenderGeometry(ren, nullptr, skyVerts, 6, skyIdx, 12);
+void leatherWrap(SDL_Renderer* ren, Vec2 a, Vec2 b, float t, float w) {
+    Vec2 p = a + (b - a) * t;
+    Vec2 d = (b - a).normalized();
+    Vec2 n(-d.y, d.x);
+    drawThickLine(ren, p - n * (w * 0.6f) - d * 4.0f, p + n * (w * 0.6f) - d * 4.0f, 3.0f, {92, 50, 30, 255});
+    drawThickLine(ren, p - n * (w * 0.6f) + d * 2.0f, p + n * (w * 0.6f) + d * 2.0f, 3.0f, {92, 50, 30, 255});
+}
 
-    // Chapter-Specific Celestial Bodies & Upper Sky Features (Distant 0.08x Parallax)
-    Vec2 celOff(-cam.x * 0.08f, -cam.y * 0.06f);
-    if (theme == 0) {
-        // Chapter I: Morning Sun with soft corona rings & drifting origami clouds
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 58.0f, 12, animT * 0.1f, {255, 224, 130, 55});
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 40.0f, 12, -animT * 0.1f, {255, 232, 150, 110});
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 26.0f, 10, 0.0f, {255, 246, 200, 240});
-        // Origami paper clouds (with gentle parallax)
-        for (int c = 0; c < 3; ++c) {
-            float cx = std::fmod(180.0f + c * 390.0f + animT * (12.0f + c * 4.0f) - cam.x * 0.15f, WINDOW_W + 260.0f) - 130.0f;
-            float cy = 125.0f + (c % 2) * 42.0f + celOff.y;
-            drawConvexPoly(ren, {{cx - 48, cy + 10}, {cx - 22, cy - 14}, {cx + 18, cy - 18},
-                                 {cx + 52, cy + 10}}, {255, 250, 242, 165});
-        }
-    } else if (theme == 1) {
-        // Chapter II: Giant Harvest Moon & twinkling stars
-        drawNGon(ren, {1095.0f + celOff.x, 160.0f + celOff.y}, 46.0f, 12, 0.0f, {255, 198, 92, 65});
-        drawNGon(ren, {1095.0f + celOff.x, 160.0f + celOff.y}, 32.0f, 10, 0.15f, {255, 218, 122, 235});
-        drawNGon(ren, {1085.0f + celOff.x, 152.0f + celOff.y}, 7.0f, 6, 0.0f, {228, 182, 88, 180});
-        drawNGon(ren, {1106.0f + celOff.x, 170.0f + celOff.y}, 5.0f, 6, 0.0f, {228, 182, 88, 180});
-    } else if (theme == 2) {
-        // Chapter III: Twin Desert Moons & high canyon stars
-        drawNGon(ren, {1060.0f + celOff.x, 150.0f + celOff.y}, 26.0f, 10, 0.1f, {248, 232, 204, 225});
-        drawNGon(ren, {1135.0f + celOff.x, 195.0f + celOff.y}, 14.0f, 8, 0.3f, {242, 148, 112, 215});
-    } else if (theme == 3) {
-        // Chapter IV: Shimmering Aurora Borealis Ribbons & Crescent Ice Moon
-        for (int band = 0; band < 3; ++band) {
-            float by = 110.0f + band * 34.0f + celOff.y;
-            for (int seg = 0; seg < 18; ++seg) {
-                float x0 = -pad + seg * 85.0f + celOff.x;
-                float x1 = -pad + (seg + 1) * 85.0f + celOff.x;
-                float y0 = by + std::sin(animT * 1.4f + seg * 0.55f + band) * 16.0f;
-                float y1 = by + std::sin(animT * 1.4f + (seg + 1) * 0.55f + band) * 16.0f;
-                SDL_Color aCol = (band == 0) ? SDL_Color{64, 235, 175, 52}
-                                             : (band == 1 ? SDL_Color{72, 195, 245, 45}
-                                                          : SDL_Color{145, 110, 245, 38});
-                drawConvexPoly(ren, {{x0, y0}, {x1, y1}, {x1, y1 + 28.0f}, {x0, y0 + 28.0f}}, aCol);
-            }
-        }
-        drawNGon(ren, {1115.0f + celOff.x, 150.0f + celOff.y}, 28.0f, 8, 0.2f, {235, 248, 255, 230});
-        drawNGon(ren, {1126.0f + celOff.x, 143.0f + celOff.y}, 22.0f, 8, 0.2f, {22, 42, 68, 255});
-    } else if (theme == 4) {
-        // Chapter V: Blazing Volcanic Solar Eclipse Corona
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 54.0f, 14, animT * 0.2f, {255, 92, 38, 75});
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 38.0f, 12, -animT * 0.15f, {255, 168, 58, 165});
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 27.0f, 12, 0.0f, {24, 16, 28, 255});
-    } else {
-        // Chapter XV: Royal Twilight Celestial Golden Truffle Eclipse & Sacred Constellation
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 58.0f, 16, animT * 0.15f, {224, 178, 65, 80});
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 42.0f, 14, -animT * 0.12f, {255, 215, 0, 160});
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 28.0f, 12, 0.0f, {32, 18, 48, 255});
-        drawNGon(ren, {1080.0f + celOff.x, 165.0f + celOff.y}, 12.0f, 8, animT * 0.3f, {255, 235, 120, 220});
-    }
+}  // namespace
 
-    // Twinkling Geometric Stars (in Themes 1, 2, 3, 4, 5)
-    if (theme != 0) {
-        const Vec2 starPts[9] = {
-            {140, 105}, {285, 150}, {460, 98}, {610, 138},
-            {790, 102}, {945, 148}, {1010, 96}, {1190, 158}, {525, 182}
-        };
-        for (int i = 0; i < 9; ++i) {
-            drawNGon(ren, starPts[i] + celOff, (i % 2 == 0) ? 3.2f : 2.2f, 4, 0.0f, {248, 240, 215, 185});
-        }
-    }
-
-    // Chapter-Specific Horizon Silhouettes (0.32x Midground Parallax)
-    float paraX = -cam.x * 0.32f;
-    float paraY = -cam.y * 0.16f;
-    float gy = GROUND_Y - cam.y;
-
-    if (theme == 0) {
-        // Chapter I: Rolling Emerald Hills & Origami Pine Trees + Distant Windmill
-        drawTriangle(ren, {40 + paraX, gy},  {290 + paraX, 340 + paraY}, {580 + paraX, gy},  {66, 108, 92, 255});
-        drawTriangle(ren, {290 + paraX, 340 + paraY}, {435 + paraX, gy}, {580 + paraX, gy}, {52, 88, 76, 255});
-        drawTriangle(ren, {420 + paraX, gy}, {720 + paraX, 285 + paraY}, {1040 + paraX, gy}, {76, 122, 102, 255});
-        drawTriangle(ren, {720 + paraX, 285 + paraY}, {880 + paraX, gy}, {1040 + paraX, gy}, {58, 98, 82, 255});
-        drawTriangle(ren, {840 + paraX, gy}, {1120 + paraX, 355 + paraY}, {1320 + paraX, gy}, {64, 104, 88, 255});
-        // Distant origami windmill on the left hillcrest
-        drawConvexPoly(ren, {{278 + paraX, 345 + paraY}, {302 + paraX, 345 + paraY},
-                             {308 + paraX, 410 + paraY}, {272 + paraX, 410 + paraY}}, {232, 218, 195, 255});
-        for (int b = 0; b < 4; ++b) {
-            float ba = animT * 0.9f + b * (PI * 0.5f);
-            drawThickLine(ren, {290 + paraX, 356 + paraY},
-                          {290 + paraX + std::cos(ba) * 38.0f, 356 + paraY + std::sin(ba) * 38.0f},
-                          3.5f, {248, 238, 210, 230});
-        }
-    } else if (theme == 1) {
-        // Chapter II: Layered Autumn Ridges & Giant Origami Woodland Trees
-        drawTriangle(ren, {30 + paraX, gy},  {310 + paraX, 310 + paraY}, {600 + paraX, gy},  {84, 46, 52, 255});
-        drawTriangle(ren, {440 + paraX, gy}, {740 + paraX, 265 + paraY}, {1050 + paraX, gy}, {98, 54, 58, 255});
-        drawTriangle(ren, {830 + paraX, gy}, {1115 + paraX, 325 + paraY}, {1320 + paraX, gy}, {74, 40, 48, 255});
-        // Layered origami autumn pine/maple silhouettes along the horizon
-        const float treeX[7] = {90.0f, 360.0f, 485.0f, 560.0f, 640.0f, 1090.0f, 1185.0f};
-        for (int t = 0; t < 7; ++t) {
-            float tx = treeX[t] + paraX;
-            SDL_FRect trunk{tx - 5.0f, gy - 38.0f, 10.0f, 38.0f};
-            SDL_SetRenderDrawColor(ren, 52, 30, 22, 255);
-            SDL_RenderFillRectF(ren, &trunk);
-            SDL_Color leafCol = (t % 2 == 0) ? SDL_Color{186, 78, 38, 240} : SDL_Color{218, 134, 42, 240};
-            drawTriangle(ren, {tx - 34.0f, gy - 32.0f}, {tx, gy - 96.0f},  {tx + 34.0f, gy - 32.0f}, leafCol);
-            drawTriangle(ren, {tx - 26.0f, gy - 68.0f}, {tx, gy - 126.0f}, {tx + 26.0f, gy - 68.0f}, leafCol);
-        }
-    } else if (theme == 2) {
-        // Chapter III: Flat-Topped Red-Rock Mesas & Distant Canyon Viaduct Arches
-        drawConvexPoly(ren, {{40 + paraX, gy}, {110 + paraX, 340 + paraY},
-                             {340 + paraX, 340 + paraY}, {410 + paraX, gy}}, {112, 54, 46, 255});
-        drawConvexPoly(ren, {{225 + paraX, 340 + paraY}, {340 + paraX, 340 + paraY},
-                             {410 + paraX, gy}, {225 + paraX, gy}}, {88, 42, 38, 255});
-        drawConvexPoly(ren, {{760 + paraX, gy}, {840 + paraX, 290 + paraY},
-                             {1080 + paraX, 290 + paraY}, {1170 + paraX, gy}}, {126, 62, 50, 255});
-        drawConvexPoly(ren, {{960 + paraX, 290 + paraY}, {1080 + paraX, 290 + paraY},
-                             {1170 + paraX, gy}, {960 + paraX, gy}}, {96, 46, 40, 255});
-        // Distant viaduct bridge spanning between the two mesas
-        SDL_FRect bridgeDeck{340.0f + paraX, 365.0f + paraY, 480.0f, 14.0f};
-        SDL_SetRenderDrawColor(ren, 74, 42, 46, 230);
-        SDL_RenderFillRectF(ren, &bridgeDeck);
-        for (int p = 0; p < 5; ++p) {
-            SDL_FRect pier{385.0f + p * 88.0f + paraX, 379.0f + paraY, 18.0f, gy - (379.0f + paraY)};
-            SDL_RenderFillRectF(ren, &pier);
-        }
-    } else if (theme == 3) {
-        // Chapter IV: Jagged Snow-Capped Glacial Peaks
-        drawTriangle(ren, {40 + paraX, gy},  {295 + paraX, 250 + paraY}, {550 + paraX, gy},  {54, 78, 108, 255});
-        drawTriangle(ren, {295 + paraX, 250 + paraY}, {422 + paraX, gy}, {550 + paraX, gy}, {40, 60, 86, 255});
-        drawTriangle(ren, {390 + paraX, gy}, {710 + paraX, 195 + paraY}, {1030 + paraX, gy}, {64, 92, 124, 255});
-        drawTriangle(ren, {710 + paraX, 195 + paraY}, {870 + paraX, gy}, {1030 + paraX, gy}, {48, 70, 98, 255});
-        drawTriangle(ren, {820 + paraX, gy}, {1105 + paraX, 275 + paraY}, {1310 + paraX, gy}, {52, 76, 106, 255});
-        // Bright snow caps
-        drawTriangle(ren, {295 + paraX, 250 + paraY}, {240 + paraX, 355 + paraY},
-                          {350 + paraX, 355 + paraY}, {235, 246, 255, 235});
-        drawTriangle(ren, {710 + paraX, 195 + paraY}, {642 + paraX, 315 + paraY},
-                          {778 + paraX, 315 + paraY}, {235, 246, 255, 240});
-        drawTriangle(ren, {1105 + paraX, 275 + paraY}, {1052 + paraX, 365 + paraY},
-                          {1158 + paraX, 365 + paraY}, {230, 242, 255, 225});
-    } else if (theme == 4) {
-        // Chapter V: Jagged Volcanic Spires, Lava Veins & Imperial Battlements
-        drawTriangle(ren, {50 + paraX, gy},  {280 + paraX, 240 + paraY}, {510 + paraX, gy},  {46, 30, 42, 255});
-        drawTriangle(ren, {280 + paraX, 240 + paraY}, {395 + paraX, gy}, {510 + paraX, gy}, {32, 22, 30, 255});
-        drawTriangle(ren, {430 + paraX, gy}, {715 + paraX, 205 + paraY}, {1000 + paraX, gy}, {54, 34, 46, 255});
-        drawTriangle(ren, {715 + paraX, 205 + paraY}, {858 + paraX, gy}, {1000 + paraX, gy}, {38, 24, 34, 255});
-        drawTriangle(ren, {860 + paraX, gy}, {1120 + paraX, 265 + paraY}, {1320 + paraX, gy}, {44, 28, 38, 255});
-        // Glowing magma fissures on the central volcanic peak
-        drawThickLine(ren, {715 + paraX, 205 + paraY}, {692 + paraX, 320 + paraY}, 3.5f, {255, 112, 38, 210});
-        drawThickLine(ren, {715 + paraX, 205 + paraY}, {742 + paraX, 350 + paraY}, 3.0f, {255, 148, 48, 190});
-    } else {
-        // Chapter XV: Ancient Royal Truffle Vault Colonnades, Obelisks & Grand Ruin Spires
-        drawConvexPoly(ren, {{60 + paraX, gy}, {120 + paraX, 230 + paraY}, {190 + paraX, 230 + paraY}, {250 + paraX, gy}}, {54, 32, 72, 255});
-        drawTriangle(ren, {120 + paraX, 230 + paraY}, {155 + paraX, 170 + paraY}, {190 + paraX, 230 + paraY}, {78, 48, 98, 255});
-        drawConvexPoly(ren, {{420 + paraX, gy}, {500 + paraX, 260 + paraY}, {680 + paraX, 260 + paraY}, {760 + paraX, gy}}, {48, 28, 64, 255});
-        drawConvexPoly(ren, {{820 + paraX, gy}, {880 + paraX, 210 + paraY}, {960 + paraX, 210 + paraY}, {1020 + paraX, gy}}, {62, 36, 82, 255});
-        drawTriangle(ren, {880 + paraX, 210 + paraY}, {920 + paraX, 150 + paraY}, {960 + paraX, 210 + paraY}, {88, 56, 112, 255});
-        // Distant glowing gold rune beacons
-        drawNGon(ren, {155 + paraX, 168 + paraY}, 6.0f, 6, animT * 1.2f, {255, 215, 0, 220});
-        drawNGon(ren, {920 + paraX, 148 + paraY}, 6.0f, 6, -animT * 1.2f, {255, 215, 0, 220});
-    }
-
-    // Ambient Chapter Weather Particles
-    for (int i = 0; i < 18; ++i) {
-        float seed = i * 73.1f;
-        float wx = std::fmod(seed * 19.0f + animT * (18.0f + (i % 5) * 6.0f), static_cast<float>(WINDOW_W));
-        float wy = 0.0f;
-        SDL_Color pCol{255, 255, 255, 150};
-        float pRad = 3.0f;
-        if (chap == 4) {
-            // Rising glowing volcanic embers
-            wy = gy - std::fmod(seed * 13.0f + animT * (32.0f + (i % 4) * 10.0f), GROUND_Y - 70.0f);
-            pCol = (i % 2 == 0) ? SDL_Color{255, 142, 48, 200} : SDL_Color{255, 212, 82, 180};
-            pRad = 3.2f;
-        } else if (chap == 5) {
-            // Rising mystic golden sparkle motes in the royal vaults
-            wy = gy - std::fmod(seed * 11.0f + animT * (28.0f + (i % 3) * 8.0f), GROUND_Y - 50.0f);
-            wx += std::sin(animT * 2.2f + i) * 14.0f;
-            pCol = (i % 2 == 0) ? SDL_Color{255, 215, 80, 220} : SDL_Color{224, 160, 255, 180};
-            pRad = 3.4f;
-        } else {
-            // Gently falling leaves / snow / pollen
-            wy = 70.0f + std::fmod(seed * 17.0f + animT * (24.0f + (i % 4) * 7.0f), GROUND_Y - 75.0f);
-            wx += std::sin(animT * 1.8f + i) * 18.0f;
-            if (chap == 0) { pCol = {255, 248, 195, 155}; pRad = 2.8f; }
-            else if (chap == 1) { pCol = (i % 2 == 0) ? SDL_Color{228, 112, 42, 210} : SDL_Color{242, 178, 52, 210}; pRad = 4.2f; }
-            else if (chap == 2) { pCol = {238, 184, 132, 130}; pRad = 2.5f; }
-            else { pCol = {240, 250, 255, 215}; pRad = 3.5f; }
-        }
-        drawNGon(ren, {wx, wy}, pRad, (chap == 1) ? 4 : 6, animT * 1.5f + i, pCol);
-    }
-
-    // Terraced Ground & Chapter Surface Detail with Shake Margins
-    SDL_FRect groundBase{-pad, gy, WINDOW_W + 2.0f * pad, WINDOW_H - gy + pad};
-    SDL_SetRenderDrawColor(ren, groundCol.r, groundCol.g, groundCol.b, 255);
-    SDL_RenderFillRectF(ren, &groundBase);
-    SDL_FRect grassTrim{-pad, gy, WINDOW_W + 2.0f * pad, 13.0f};
-    SDL_SetRenderDrawColor(ren, trimCol.r, trimCol.g, trimCol.b, 255);
-    SDL_RenderFillRectF(ren, &grassTrim);
-    SDL_FRect subTrim{-pad, gy + 13.0f, WINDOW_W + 2.0f * pad, 5.0f};
-    SDL_SetRenderDrawColor(ren, static_cast<uint8_t>(trimCol.r * 0.72f),
-                           static_cast<uint8_t>(trimCol.g * 0.72f),
-                           static_cast<uint8_t>(trimCol.b * 0.72f), 255);
-    SDL_RenderFillRectF(ren, &subTrim);
+void drawCatapultFrontArm(SDL_Renderer* ren, float sx, float sy) {
+    Vec2 fork(sx, sy + 30.0f), tip(sx - 18.0f, sy - 12.0f);
+    woodLimb(ren, fork, tip, 11.0f);
+    leatherWrap(ren, fork, tip, 0.78f, 11.0f);
 }
 
 void SnoutAndSiegeGame::renderSiegeCatapultBase(SDL_Renderer* ren, float sx, float sy, float groundY) {
-    // Heavy timber & iron siege catapult base plinth on the ground
-    SDL_FRect plinth{sx - 28.0f, groundY - 14.0f, 56.0f, 14.0f};
-    SDL_SetRenderDrawColor(ren, 64, 42, 26, 255);
-    SDL_RenderFillRectF(ren, &plinth);
-    drawThickLine(ren, {sx - 22.0f, groundY - 6.0f}, {sx, sy + 32.0f}, 8.0f, {72, 46, 28, 255});
-    drawThickLine(ren, {sx + 22.0f, groundY - 6.0f}, {sx, sy + 32.0f}, 8.0f, {72, 46, 28, 255});
-    drawThickLine(ren, {sx, groundY}, {sx, sy + 28.0f}, 16.0f, {88, 54, 34, 255});
-    drawThickLine(ren, {sx, sy + 28.0f}, {sx + 20.0f, sy - 12.0f}, 11.0f, {112, 70, 44, 255});
-    // Brass pivot bolt
-    drawNGon(ren, {sx, sy + 26.0f}, 5.5f, 6, 0.0f, {226, 188, 92, 255});
+    // Stone footing.
+    ui::fillCircle(ren, {sx - 20.0f, groundY - 4.0f}, 14.0f, {88, 90, 104, 255}, 18);
+    ui::fillCircle(ren, {sx + 18.0f, groundY - 3.0f}, 12.0f, {104, 106, 120, 255}, 18);
+    ui::fillCircle(ren, {sx - 2.0f, groundY - 8.0f}, 16.0f, {120, 122, 138, 255}, 20);
+    ui::fillCircle(ren, {sx - 7.0f, groundY - 13.0f}, 5.0f, {160, 162, 176, 255}, 12);
+    // Trunk and the back fork arm (the front arm is drawn over the pig).
+    Vec2 fork(sx, sy + 30.0f);
+    woodLimb(ren, {sx, groundY - 14.0f}, fork, 16.0f);
+    Vec2 backTip(sx + 18.0f, sy - 12.0f);
+    woodLimb(ren, fork, backTip, 11.0f);
+    leatherWrap(ren, fork, backTip, 0.78f, 11.0f);
 }
 
 void SnoutAndSiegeGame::render(SDL_Renderer* ren) {
@@ -318,13 +93,18 @@ void SnoutAndSiegeGame::render(SDL_Renderer* ren) {
     // ScreenState::PLAYING
     // Drifting cumulonimbus storm clouds
     for (const auto& sc : stormClouds) {
-        Vec2 cPos = sc.pos - cam * 0.35f;
+        Vec2 c = sc.pos - cam * 0.35f;
         float hw = sc.width * 0.5f, hh = sc.height * 0.5f;
-        drawNGon(ren, {cPos.x - hw * 0.35f, cPos.y + 4.0f}, hh * 0.95f, 10, 0.0f, {45, 52, 68, 220});
-        drawNGon(ren, {cPos.x, cPos.y - 6.0f}, hh * 1.15f, 10, 0.0f, {55, 62, 80, 230});
-        drawNGon(ren, {cPos.x + hw * 0.40f, cPos.y + 2.0f}, hh * 0.90f, 10, 0.0f, {48, 55, 72, 220});
-        drawNGon(ren, {cPos.x, cPos.y + 8.0f}, hh * 0.85f, 10, 0.0f, {38, 44, 58, 240});
-        drawThickLine(ren, {cPos.x - hw * 0.3f, cPos.y - hh * 0.85f}, {cPos.x + hw * 0.35f, cPos.y - hh * 0.80f}, 2.2f, {140, 160, 195, 180});
+        const SDL_Color body{58, 64, 86, 235}, under{42, 46, 64, 240}, rim{96, 104, 132, 235};
+        ui::fillRoundRect(ren, {c.x - hw * 0.8f, c.y - hh * 0.1f, hw * 1.6f, hh * 0.9f}, hh * 0.45f, under);
+        ui::fillCircle(ren, {c.x - hw * 0.42f, c.y + hh * 0.05f}, hh * 0.72f, under, 20);
+        ui::fillCircle(ren, {c.x + hw * 0.45f, c.y + hh * 0.1f}, hh * 0.66f, under, 20);
+        ui::fillCircle(ren, {c.x - hw * 0.12f, c.y - hh * 0.42f}, hh * 0.86f, rim, 24);
+        ui::fillCircle(ren, {c.x + hw * 0.25f, c.y - hh * 0.25f}, hh * 0.72f, rim, 22);
+        ui::fillCircle(ren, {c.x - hw * 0.12f, c.y - hh * 0.34f}, hh * 0.8f, body, 24);
+        ui::fillCircle(ren, {c.x + hw * 0.25f, c.y - hh * 0.18f}, hh * 0.66f, body, 22);
+        ui::fillCircle(ren, {c.x - hw * 0.45f, c.y - hh * 0.02f}, hh * 0.6f, body, 20);
+        ui::fillRoundRect(ren, {c.x - hw * 0.72f, c.y - hh * 0.05f, hw * 1.44f, hh * 0.6f}, hh * 0.3f, body);
     }
 
     // Active electric lightning bolts
@@ -368,7 +148,8 @@ void SnoutAndSiegeGame::render(SDL_Renderer* ren) {
     Vec2 pouchPos = slingPullPos;
     if (hasAimingPig) {
         pouchPos = activePigs[0].pos;
-        drawThickLine(ren, {SLING_X + 18.0f - cam.x, SLING_Y - 8.0f - cam.y}, pouchPos - cam, 5.5f, {218, 175, 110, 255});
+        drawThickLine(ren, {SLING_X + 18.0f - cam.x, SLING_Y - 8.0f - cam.y}, pouchPos - cam, 8.0f, {60, 30, 24, 255});
+        drawThickLine(ren, {SLING_X + 18.0f - cam.x, SLING_Y - 8.0f - cam.y}, pouchPos - cam, 5.0f, {150, 70, 52, 255});
     } else {
         Vec2 recoilOffset{0.0f, 0.0f};
         if (slingRecoilTimer > 0.0f) {
@@ -377,7 +158,8 @@ void SnoutAndSiegeGame::render(SDL_Renderer* ren) {
             recoilOffset = lastLaunchDir * vibe;
         }
         pouchPos = Vec2(SLING_X, SLING_Y) + recoilOffset;
-        drawThickLine(ren, {SLING_X + 18.0f - cam.x, SLING_Y - 8.0f - cam.y}, pouchPos - cam, 4.5f, {218, 175, 110, 230});
+        drawThickLine(ren, {SLING_X + 18.0f - cam.x, SLING_Y - 8.0f - cam.y}, pouchPos - cam, 7.0f, {60, 30, 24, 255});
+        drawThickLine(ren, {SLING_X + 18.0f - cam.x, SLING_Y - 8.0f - cam.y}, pouchPos - cam, 4.0f, {150, 70, 52, 255});
     }
 
     if (draggingSling && hasAimingPig) {
@@ -390,11 +172,9 @@ void SnoutAndSiegeGame::render(SDL_Renderer* ren) {
                         SLING_Y + v0.y * t + 0.5f * GRAVITY * t * t - cam.y);
                 if (pt.y > screenGroundY) break;
                 uint8_t alpha = static_cast<uint8_t>(std::max(40, 245 - i * 8));
-                drawNGon(ren, pt, 5.5f, 6, 0.0f, {24, 28, 38, static_cast<uint8_t>(alpha * 0.65f)});
-                drawNGon(ren, pt, (i % 3 == 0) ? 4.2f : 3.4f, 6, 0.0f, {255, 238, 165, alpha});
-                if (i % 2 == 0) {
-                    drawNGon(ren, pt, 1.6f, 4, 0.0f, {255, 255, 255, alpha});
-                }
+                float r = std::max(2.5f, 6.0f - i * 0.13f);
+                ui::fillCircle(ren, pt, r + 1.8f, {24, 22, 40, static_cast<uint8_t>(alpha * 0.55f)}, 14);
+                ui::fillCircle(ren, pt, r, {255, 255, 255, alpha}, 14);
             }
         }
     }
@@ -439,15 +219,15 @@ void SnoutAndSiegeGame::render(SDL_Renderer* ren) {
     }
 
     // Catapult front elastic band & leather cup
-    if (hasAimingPig) {
-        drawThickLine(ren, {SLING_X - 16.0f - cam.x, SLING_Y - 8.0f - cam.y}, pouchPos - cam, 6.0f, {236, 194, 128, 255});
-        drawNGon(ren, pouchPos - cam - Vec2(4.0f, 0.0f), 9.0f, 6, 0.0f, {92, 54, 32, 255});
-    } else {
-        drawThickLine(ren, {SLING_X - 16.0f - cam.x, SLING_Y - 8.0f - cam.y}, pouchPos - cam, 5.0f, {236, 194, 128, 230});
-        drawNGon(ren, pouchPos - cam, 7.5f, 6, 0.0f, {92, 54, 32, 255});
+    {
+        Vec2 anchor(SLING_X - 16.0f - cam.x, SLING_Y - 8.0f - cam.y);
+        Vec2 pouch = pouchPos - cam - (hasAimingPig ? Vec2(4.0f, 0.0f) : Vec2(0.0f, 0.0f));
+        drawThickLine(ren, anchor, pouch, hasAimingPig ? 9.0f : 8.0f, {60, 30, 24, 255});
+        drawThickLine(ren, anchor, pouch, hasAimingPig ? 6.0f : 5.0f, {186, 88, 64, 255});
+        ui::fillCircle(ren, pouch, hasAimingPig ? 11.0f : 9.0f, {52, 30, 20, 255}, 16);
+        ui::fillCircle(ren, pouch, hasAimingPig ? 8.5f : 6.5f, {116, 70, 42, 255}, 16);
     }
-    drawThickLine(ren, {SLING_X - cam.x, SLING_Y + 28.0f - cam.y},
-                       {SLING_X - 18.0f - cam.x, SLING_Y - 12.0f - cam.y}, 12.0f, {128, 82, 50, 255});
+    drawCatapultFrontArm(ren, SLING_X - cam.x, SLING_Y - cam.y);
 
     for (const auto& pt : particles) {
         float alphaRatio = clampf(pt.life / pt.maxLife, 0.0f, 1.0f);
@@ -593,11 +373,10 @@ void SnoutAndSiegeGame::render(SDL_Renderer* ren) {
         float sx = fs.pos.x - cam.x;
         float sy = fs.pos.y - cam.y;
         uint8_t alpha = static_cast<uint8_t>(clampf(fs.life / fs.maxLife, 0.0f, 1.0f) * 255.0f);
-        SDL_Color shadowCol{14, 18, 26, alpha};
         SDL_Color txtCol = fs.color;
         txtCol.a = alpha;
-        drawText(ren, fs.text, sx + 2.0f, sy + 2.0f, popScale, shadowCol, true);
-        drawText(ren, fs.text, sx, sy, popScale, txtCol, true);
+        ui::title(ren, fs.text, sx, sy - popScale * 4.0f, popScale * 11.0f, txtCol, TextAlign::CENTER,
+                  {24, 22, 40, alpha});
     }
 
     // Full-screen lightning flash illumination
@@ -619,7 +398,7 @@ void SnoutAndSiegeGame::render(SDL_Renderer* ren) {
         SDL_RenderFillRectF(ren, &topBarRect);
         SDL_RenderFillRectF(ren, &btmBarRect);
         if (sloMoActive) {
-            drawText(ren, "** AVIAN RECKONING **", WINDOW_W * 0.5f, letterboxY * 0.5f - 8.0f, 1.8f, {255, 215, 95, 255}, true);
+            ui::title(ren, "Avian Reckoning!", WINDOW_W * 0.5f, letterboxY * 0.5f - 22.0f, 30.0f, ui::pal::GOLD);
         }
     }
 }

@@ -133,7 +133,7 @@ int runSelfTestAndExportScreenshots(bool exportBmp) {
     game.screen = ScreenState::LEVEL_SELECT;
     game.levelSelectPage = 0; saveFrame("screenshot_level_select_p1.bmp");
     game.levelSelectPage = 1; saveFrame("screenshot_level_select_p2.bmp");
-    game.levelSelectPage = 6; saveFrame("screenshot_level_select_p3.bmp");
+    game.levelSelectPage = LEVEL_SELECT_VAULT_PAGE; saveFrame("screenshot_level_select_p3.bmp");
 
     // Export screenshots of Chapter Backgrounds across levels
     game.screen = ScreenState::PLAYING;
@@ -929,7 +929,7 @@ int runSelfTestAndExportScreenshots(bool exportBmp) {
             bad << "theme = 99\nblock = 42 100 100 40 40\nbird = 17 100 100 0\nblock = 1 nan 100 40 40\nblock = 1 800 500 40 40\n";
         }
         game.loadCustomLevel(2);
-        if (game.editorTheme < 0 || game.editorTheme > 5 || game.customLevel.blocks.size() != 1 ||
+        if (game.editorTheme < 0 || game.editorTheme > NUM_CHAPTERS || game.customLevel.blocks.size() != 1 ||
             !game.customLevel.birds.empty()) {
             std::cerr << "[SELF-TEST] Corrupt custom level entries were not rejected!\n";
             return 65;

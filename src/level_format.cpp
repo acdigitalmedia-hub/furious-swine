@@ -287,7 +287,7 @@ bool parseLevelText(const std::string& text, ParsedLevel& out, std::string* warn
         } else if (key == "theme") {
             int t;
             ok = parseInt(val, t);
-            if (ok) out.theme = std::clamp(t, 0, 5);
+            if (ok) out.theme = std::clamp(t, 0, 14);
         } else if (key == "star2" || key == "star3") {
             int v;
             ok = parseInt(val, v) && v >= 0;

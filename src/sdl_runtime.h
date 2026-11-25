@@ -203,6 +203,9 @@ void SDL_DestroyTexture(SDL_Texture* texture);
 
 int SDL_SetTextureBlendMode(SDL_Texture* texture, int blendMode);
 
+// 0 = nearest, 1 = linear. Needs SDL >= 2.0.12; a no-op (nearest) otherwise.
+int SDL_SetTextureScaleMode(SDL_Texture* texture, int scaleMode);
+
 SDL_RWops* SDL_RWFromFile(const char* file, const char* mode);
 
 int SDL_SaveBMP_RW(SDL_Surface* surface, SDL_RWops* dst, int freedst);

@@ -835,6 +835,10 @@ bool SnoutAndSiegeGame::handleButtonClick(const std::string& id, bool& running) 
         return true;
     }
     if (id == "OPEN_LEVEL_SELECT") {
+        // Open on the chapter being played (or the furthest one reached).
+        int focus = (screen == ScreenState::PLAYING) ? currentLevelIdx : getHighestUnlockedLevel();
+        levelSelectPage = (focus >= NUM_CAMPAIGN_LEVELS) ? LEVEL_SELECT_VAULT_PAGE
+                                                         : std::clamp(focus / LEVELS_PER_CHAPTER, 0, NUM_CHAPTERS - 1);
         screen = ScreenState::LEVEL_SELECT;
         return true;
     }
@@ -932,7 +936,7 @@ bool SnoutAndSiegeGame::handleButtonClick(const std::string& id, bool& running) 
     if (id == "TOGGLE_HELMET") { editorBirdHelmet = !editorBirdHelmet; return true; }
     if (id == "TOGGLE_SPIKE") { editorSpikedPendulum = !editorSpikedPendulum; return true; }
     if (id == "TOGGLE_GRID") { editorSnapGrid = !editorSnapGrid; return true; }
-    if (id == "CYCLE_THEME") { editorTheme = (editorTheme + 1) % 6; return true; }
+    if (id == "CYCLE_THEME") { editorTheme = (editorTheme + 1) % (NUM_CHAPTERS + 1); return true; }
     if (id == "WIND_DEC") { editorWind = std::max(-120.0f, editorWind - 30.0f); return true; }
     if (id == "WIND_INC") { editorWind = std::min(120.0f, editorWind + 30.0f); return true; }
     if (id == "TOGGLE_STORM") { editorStorm = !editorStorm; return true; }
@@ -953,16 +957,13 @@ bool SnoutAndSiegeGame::handleButtonClick(const std::string& id, bool& running) 
         return true;
     }
     if (id == "PAGE_NEXT") {
-        if (levelSelectPage < 6) levelSelectPage++;
+        if (levelSelectPage < LEVEL_SELECT_VAULT_PAGE) levelSelectPage++;
         return true;
     }
-    if (id == "GOTO_PAGE_0") { levelSelectPage = 0; return true; }
-    if (id == "GOTO_PAGE_1") { levelSelectPage = 1; return true; }
-    if (id == "GOTO_PAGE_2") { levelSelectPage = 2; return true; }
-    if (id == "GOTO_PAGE_3") { levelSelectPage = 3; return true; }
-    if (id == "GOTO_PAGE_4") { levelSelectPage = 4; return true; }
-    if (id == "GOTO_PAGE_5") { levelSelectPage = 5; return true; }
-    if (id == "GOTO_PAGE_6") { levelSelectPage = 6; return true; }
+    if (id.rfind("GOTO_PAGE_", 0) == 0) {
+        levelSelectPage = std::clamp(std::atoi(id.c_str() + 10), 0, LEVEL_SELECT_VAULT_PAGE);
+        return true;
+    }
     if (id.rfind("PLAY_LEVEL_", 0) == 0) {
         int idx = std::atoi(id.substr(11).c_str());
         if (idx >= 0 && idx < NUM_LEVELS && isLevelUnlocked(idx)) {

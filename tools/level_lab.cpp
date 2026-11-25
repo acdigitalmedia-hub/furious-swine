@@ -21,6 +21,7 @@
 // project root. Gameplay side effects (save files) are redirected to a
 // temporary directory so the player's progress is never touched.
 #include "game.h"
+#include "text.h"
 
 #include <atomic>
 #include <cstdio>
@@ -330,6 +331,7 @@ int main(int argc, char** argv) {
         ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
         SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
         workers[0]->game.assets.loadAll(ren);
+        textLoadFont();  // before we leave the project directory
     }
 
     // Keep progress/achievement saves away from the real save file.

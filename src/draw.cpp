@@ -1,5 +1,7 @@
 #include "draw.h"
 
+#include "text.h"
+
 // ============================================================================
 // BITMAP FONT & GEOMETRIC DRAWING PRIMITIVES
 // ============================================================================
@@ -114,6 +116,22 @@ std::string formatNumber(int n) {
 
 void drawText(SDL_Renderer* ren, const std::string& text, float x, float y,
               float scale, SDL_Color col, bool center, bool shadow) {
+    if (textFontAvailable()) {
+        // Legacy call sites size text by the old 5x7 grid: capitals were
+        // 7*scale tall with their top at y. Match that with the real font.
+        TextStyle st;
+        st.face = FontFace::BOLD;
+        float capRatio = textCapHeight(FontFace::BOLD, 100.0f) / 100.0f;
+        st.size = 7.0f * scale / std::max(0.3f, capRatio);
+        st.color = col;
+        st.align = center ? TextAlign::CENTER : TextAlign::LEFT;
+        if (shadow && col.a > 35) {
+            st.shadow = {8, 10, 16, static_cast<uint8_t>(col.a * 0.55f)};
+            st.shadowDy = std::max(1.0f, scale * 0.8f);
+        }
+        drawTextStyled(ren, text, x, y - textCapTop(st.face, st.size), st);
+        return;
+    }
     float charW = 6.0f * scale;
     float startX = center ? (x - (text.size() * charW) * 0.5f) : x;
 

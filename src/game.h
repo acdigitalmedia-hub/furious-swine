@@ -12,6 +12,7 @@
 
 #include "assets.h"
 #include "draw.h"
+#include "ui.h"
 
 // ============================================================================
 // MAIN GAME ENGINE & 2D RIGID-BODY PHYSICS SOLVER
@@ -19,6 +20,19 @@
 constexpr int NUM_CAMPAIGN_LEVELS = 140;
 constexpr int NUM_VAULT_LEVELS = 10;
 constexpr int NUM_LEVELS = NUM_CAMPAIGN_LEVELS + NUM_VAULT_LEVELS; // 150
+constexpr int LEVELS_PER_CHAPTER = 10;
+constexpr int NUM_CHAPTERS = NUM_CAMPAIGN_LEVELS / LEVELS_PER_CHAPTER;  // 14
+constexpr int LEVEL_SELECT_VAULT_PAGE = NUM_CHAPTERS;                  // page after the last chapter
+
+// Display names for the 14 campaign chapters (index 14 = the secret vaults).
+inline const char* chapterName(int ch) {
+    static const char* const kNames[] = {
+        "Dawn Meadow", "Autumn Woodlands", "Basalt Canyon", "Frostpeak Highlands",
+        "Obsidian Citadel", "Bamboo Steppes", "Sunken Ruins", "Zephyr Highlands",
+        "Glacial Bastion", "Magma Foundry", "Thunderhead Peaks", "Solstice Sanctuary",
+        "Emperor's Colosseum", "Sovereign Sanctum", "Secret Truffle Vaults"};
+    return kNames[std::clamp(ch, 0, NUM_CHAPTERS)];
+}
 
 enum class ScreenState {
     TITLE = 0,
@@ -38,6 +52,13 @@ struct UIButton {
     SDL_Color borderCol{210, 172, 85, 255};
     SDL_Color textCol{248, 244, 230, 255};
     float textScale = 2.0f;
+    // UI-kit extras (see ui.h). kitColor buttons use bgCol as-is; legacy
+    // buttons get their dark colour brightened into a kit colour.
+    bool kitColor = false;
+    UiIcon icon = UiIcon::NONE;
+    bool selected = false;
+    bool off = false;              // draws a "muted" slash over the icon
+    std::string tooltip;
 
     bool contains(float mx, float my) const {
         return mx >= rect.x && mx <= (rect.x + rect.w) &&
@@ -46,6 +67,9 @@ struct UIButton {
 };
 
 void drawButton(SDL_Renderer* ren, const UIButton& btn, float mx, float my);
+
+// Front fork arm of the catapult, drawn over the loaded pig.
+void drawCatapultFrontArm(SDL_Renderer* ren, float sx, float sy);
 
 // ============================================================================
 // MAIN GAME ENGINE & 2D RIGID-BODY PHYSICS SOLVER
@@ -56,7 +80,7 @@ public:
     ScreenState screen = ScreenState::TITLE;
     std::vector<LevelSpec> levels;
     int currentLevelIdx = 0;
-    int levelSelectPage = 0;       // 0 for Levels 1-25, 1 for Levels 26-50
+    int levelSelectPage = 0;       // chapter page 0-13; LEVEL_SELECT_VAULT_PAGE = vaults
 
     std::array<int, NUM_LEVELS> bestStars{};
     std::array<int, NUM_LEVELS> bestScores{};
@@ -330,6 +354,13 @@ public:
     void renderEditorScreen(SDL_Renderer* ren);
 
     void renderHUD(SDL_Renderer* ren);
+
+    void renderResultsCard(SDL_Renderer* ren);
+
+    // Adds a clickable kit button to activeButtons and draws it.
+    void uiButton(SDL_Renderer* ren, const std::string& id, SDL_FRect r, const std::string& label,
+                  SDL_Color base, UiIcon icon = UiIcon::NONE, bool selected = false, bool off = false,
+                  const std::string& tooltip = "");
 
     bool handleButtonClick(const std::string& id, bool& running);
 };

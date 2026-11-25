@@ -11,7 +11,7 @@
 //   truffle  = 850 380              (hidden golden truffle position; optional)
 //   star2    = 21000                (optional; computed from contents if absent)
 //   star3    = 26000
-//   theme    = 2                    (editor only: backdrop 0-5)
+//   theme    = 2                    (editor only: backdrop 0-14, one per chapter)
 //
 //   block    = <material> <x> <y> <w> <h> [field=value ...]
 //              material: twig timber stone ice tnt trampoline magma

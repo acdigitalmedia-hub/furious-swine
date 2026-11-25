@@ -240,7 +240,7 @@ int main(int argc, char** argv) {
                     if (sym == SDLK_LEFT || sym == SDLK_a) {
                         if (game.levelSelectPage > 0) game.levelSelectPage--;
                     } else if (sym == SDLK_RIGHT || sym == SDLK_d) {
-                        if (game.levelSelectPage < 6) game.levelSelectPage++;
+                        if (game.levelSelectPage < LEVEL_SELECT_VAULT_PAGE) game.levelSelectPage++;
                     }
                 }
             }

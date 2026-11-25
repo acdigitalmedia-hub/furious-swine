@@ -25,6 +25,7 @@
 // ============================================================================
 struct SoftTexture {
     int w = 0, h = 0;
+    bool linear = false;
     std::vector<uint32_t> pixels;
 };
 
@@ -232,6 +233,7 @@ struct DynamicSDL2 {
     SDL_Texture* (*pSDL_CreateTextureFromSurface)(SDL_Renderer*, SDL_Surface*) = nullptr;
     void (*pSDL_DestroyTexture)(SDL_Texture*) = nullptr;
     int (*pSDL_SetTextureBlendMode)(SDL_Texture*, int) = nullptr;
+    int (*pSDL_SetTextureScaleMode)(SDL_Texture*, int) = nullptr;
     SDL_RWops* (*pSDL_RWFromFile)(const char*, const char*) = nullptr;
     SDL_Surface* (*pSDL_LoadBMP_RW)(SDL_RWops*, int) = nullptr;
     int (*pSDL_SaveBMP_RW)(SDL_Surface*, SDL_RWops*, int) = nullptr;
@@ -288,6 +290,7 @@ struct DynamicSDL2 {
         BIND_SDL(SDL_CreateTextureFromSurface);
         BIND_SDL(SDL_DestroyTexture);
         BIND_SDL(SDL_SetTextureBlendMode);
+        BIND_SDL(SDL_SetTextureScaleMode);  // optional (SDL >= 2.0.12)
         BIND_SDL(SDL_RWFromFile);
         BIND_SDL(SDL_LoadBMP_RW);
         BIND_SDL(SDL_SaveBMP_RW);
@@ -332,6 +335,38 @@ static inline void blendPixel(uint32_t& dst, uint8_t r, uint8_t g, uint8_t b, ui
     uint32_t ng = (g * a + dg * invA) >> 8;
     uint32_t nb = (b * a + db * invA) >> 8;
     dst = (0xFFu << 24) | (nr << 16) | (ng << 8) | nb;
+}
+
+// Samples a soft texture at texel-space (u, v); out = {a, r, g, b}.
+static void sampleTexel(const SoftTexture& t, float u, float v, float out[4]) {
+    auto fetch = [&](int x, int y) {
+        x = std::clamp(x, 0, t.w - 1);
+        y = std::clamp(y, 0, t.h - 1);
+        return t.pixels[y * t.w + x];
+    };
+    auto channels = [](uint32_t p, float c[4]) {
+        c[0] = static_cast<float>((p >> 24) & 0xFF);
+        c[1] = static_cast<float>((p >> 16) & 0xFF);
+        c[2] = static_cast<float>((p >> 8) & 0xFF);
+        c[3] = static_cast<float>(p & 0xFF);
+    };
+    if (!t.linear) {
+        channels(fetch(static_cast<int>(std::floor(u)), static_cast<int>(std::floor(v))), out);
+        return;
+    }
+    float fx = u - 0.5f, fy = v - 0.5f;
+    int x0 = static_cast<int>(std::floor(fx)), y0 = static_cast<int>(std::floor(fy));
+    float tx = fx - x0, ty = fy - y0;
+    float c00[4], c10[4], c01[4], c11[4];
+    channels(fetch(x0, y0), c00);
+    channels(fetch(x0 + 1, y0), c10);
+    channels(fetch(x0, y0 + 1), c01);
+    channels(fetch(x0 + 1, y0 + 1), c11);
+    for (int i = 0; i < 4; ++i) {
+        float top = c00[i] + (c10[i] - c00[i]) * tx;
+        float bot = c01[i] + (c11[i] - c01[i]) * tx;
+        out[i] = top + (bot - top) * ty;
+    }
 }
 
 int SDL_Init(uint32_t flags) {
@@ -439,35 +474,75 @@ int SDL_RenderGeometry(SDL_Renderer* renderer, SDL_Texture* texture,
     if (gSDL.loaded) {
         return gSDL.pSDL_RenderGeometry(renderer, texture, vertices, num_vertices, indices, num_indices);
     }
+    const SoftTexture* tex = reinterpret_cast<const SoftTexture*>(texture);
     auto rasterTri = [&](const SDL_Vertex& v0, const SDL_Vertex& v1, const SDL_Vertex& v2) {
         float minX = std::min({v0.position.x, v1.position.x, v2.position.x});
         float maxX = std::max({v0.position.x, v1.position.x, v2.position.x});
         float minY = std::min({v0.position.y, v1.position.y, v2.position.y});
         float maxY = std::max({v0.position.y, v1.position.y, v2.position.y});
-        int x0 = std::max(0, static_cast<int>( std::floor(minX)));
+        int x0 = std::max(0, static_cast<int>(std::floor(minX)));
         int x1 = std::min(gSDL.softRen.w - 1, static_cast<int>(std::ceil(maxX)));
         int y0 = std::max(0, static_cast<int>(std::floor(minY)));
         int y1 = std::min(gSDL.softRen.h - 1, static_cast<int>(std::ceil(maxY)));
+        if (x0 > x1 || y0 > y1) return;
         float area = (v1.position.x - v0.position.x) * (v2.position.y - v0.position.y) -
                      (v1.position.y - v0.position.y) * (v2.position.x - v0.position.x);
         if (std::abs(area) < 1e-4f) return;
         float invArea = 1.0f / area;
+        // Barycentric weights are linear in x: w = A * px + B(py).
+        const float A0 = (v1.position.y - v2.position.y) * invArea;
+        const float A1 = (v2.position.y - v0.position.y) * invArea;
+        const bool flat = !tex &&
+            std::memcmp(&v0.color, &v1.color, sizeof(SDL_Color)) == 0 &&
+            std::memcmp(&v0.color, &v2.color, sizeof(SDL_Color)) == 0;
+        const float eps = 1e-4f;
         for (int y = y0; y <= y1; ++y) {
             float py = y + 0.5f;
-            for (int x = x0; x <= x1; ++x) {
-                float px = x + 0.5f;
-                float w0 = ((v1.position.x - px) * (v2.position.y - py) -
-                            (v1.position.y - py) * (v2.position.x - px)) * invArea;
-                float w1 = ((v2.position.x - px) * (v0.position.y - py) -
-                            (v2.position.y - py) * (v0.position.x - px)) * invArea;
-                float w2 = 1.0f - w0 - w1;
-                if (w0 >= -1e-4f && w1 >= -1e-4f && w2 >= -1e-4f) {
-                    uint8_t r = static_cast<uint8_t>(v0.color.r * w0 + v1.color.r * w1 + v2.color.r * w2);
-                    uint8_t g = static_cast<uint8_t>(v0.color.g * w0 + v1.color.g * w1 + v2.color.g * w2);
-                    uint8_t b = static_cast<uint8_t>(v0.color.b * w0 + v1.color.b * w1 + v2.color.b * w2);
-                    uint8_t a = static_cast<uint8_t>(v0.color.a * w0 + v1.color.a * w1 + v2.color.a * w2);
-                    blendPixel(gSDL.softRen.fb[y * gSDL.softRen.w + x], r, g, b, a);
+            float B0 = ((v1.position.x) * (v2.position.y - py) - (v1.position.y - py) * (v2.position.x)) * invArea;
+            float B1 = ((v2.position.x) * (v0.position.y - py) - (v2.position.y - py) * (v0.position.x)) * invArea;
+            float A2 = -(A0 + A1), B2 = 1.0f - B0 - B1;
+            // Intersect the three half-planes to get this row's span.
+            float lo = x0 + 0.5f, hi = x1 + 0.5f;
+            bool empty = false;
+            for (int e = 0; e < 3 && !empty; ++e) {
+                float A = e == 0 ? A0 : (e == 1 ? A1 : A2);
+                float B = e == 0 ? B0 : (e == 1 ? B1 : B2);
+                if (A > 1e-9f) lo = std::max(lo, (-eps - B) / A);
+                else if (A < -1e-9f) hi = std::min(hi, (-eps - B) / A);
+                else if (B < -eps) empty = true;
+            }
+            if (empty || lo > hi) continue;
+            int sx = std::max(x0, static_cast<int>(std::ceil(lo - 0.5f)));
+            int ex = std::min(x1, static_cast<int>(std::floor(hi - 0.5f)));
+            uint32_t* row = &gSDL.softRen.fb[y * gSDL.softRen.w];
+            if (flat) {
+                for (int x = sx; x <= ex; ++x) {
+                    blendPixel(row[x], v0.color.r, v0.color.g, v0.color.b, v0.color.a);
                 }
+                continue;
+            }
+            for (int x = sx; x <= ex; ++x) {
+                float px = x + 0.5f;
+                float w0 = A0 * px + B0, w1 = A1 * px + B1, w2 = 1.0f - w0 - w1;
+                float r = v0.color.r * w0 + v1.color.r * w1 + v2.color.r * w2;
+                float g = v0.color.g * w0 + v1.color.g * w1 + v2.color.g * w2;
+                float b = v0.color.b * w0 + v1.color.b * w1 + v2.color.b * w2;
+                float a = v0.color.a * w0 + v1.color.a * w1 + v2.color.a * w2;
+                if (tex) {
+                    // Texel modulated by the interpolated vertex colour, as SDL does.
+                    float u = (v0.tex_coord.x * w0 + v1.tex_coord.x * w1 + v2.tex_coord.x * w2) * tex->w;
+                    float v = (v0.tex_coord.y * w0 + v1.tex_coord.y * w1 + v2.tex_coord.y * w2) * tex->h;
+                    float t[4];
+                    sampleTexel(*tex, u, v, t);
+                    a *= t[0] / 255.0f;
+                    r *= t[1] / 255.0f;
+                    g *= t[2] / 255.0f;
+                    b *= t[3] / 255.0f;
+                }
+                blendPixel(row[x], static_cast<uint8_t>(std::clamp(r, 0.0f, 255.0f)),
+                           static_cast<uint8_t>(std::clamp(g, 0.0f, 255.0f)),
+                           static_cast<uint8_t>(std::clamp(b, 0.0f, 255.0f)),
+                           static_cast<uint8_t>(std::clamp(a, 0.0f, 255.0f)));
             }
         }
     };
@@ -562,6 +637,14 @@ void SDL_DestroyTexture(SDL_Texture* texture) {
 
 int SDL_SetTextureBlendMode(SDL_Texture* texture, int blendMode) {
     if (gSDL.loaded) return gSDL.pSDL_SetTextureBlendMode(texture, blendMode);
+    return 0;
+}
+
+int SDL_SetTextureScaleMode(SDL_Texture* texture, int scaleMode) {
+    if (gSDL.loaded) {
+        return gSDL.pSDL_SetTextureScaleMode ? gSDL.pSDL_SetTextureScaleMode(texture, scaleMode) : -1;
+    }
+    if (texture) reinterpret_cast<SoftTexture*>(texture)->linear = (scaleMode != 0);
     return 0;
 }
 

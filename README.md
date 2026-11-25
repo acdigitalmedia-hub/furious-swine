@@ -157,7 +157,14 @@ Set `LEVELS_DIR=/some/dir` to test edited copies of the level files.
 - `src/sdl_runtime.h/.cpp`: SDL2 ABI declarations, `dlopen()` loader, and
   the X11 + software-renderer fallback (no SDL2 headers needed at build time).
 - `src/common.h`: shared constants, `Vec2` math, enums, and entity structs.
-- `src/draw.h/.cpp`: bitmap font, drawing primitives, origami pig/bird models.
+- `src/draw.h/.cpp`: drawing primitives, origami pig/bird models, and the
+  `drawText` helper (falls back to a built-in 5x7 bitmap font).
+- `src/text.h/.cpp`: anti-aliased text from the baked font atlas (outlines,
+  shadows, alignment, word wrap).
+- `src/ui.h/.cpp`: UI kit: rounded panels, cartoon buttons, ribbons, pills,
+  stars, and vector icons.
+- `src/scenery.h/.cpp`: the 15 chapter backdrops (sky, sun/moon, clouds, two
+  parallax landscape layers, ground, and weather).
 - `src/assets.h/.cpp`: asset manifest, sprite/WAV loading, 16-voice audio mixer.
 - `src/asset_bootstrap.cpp`: procedural generation of default sprites, sounds, and music.
 - `src/game.h`: the `SnoutAndSiegeGame` class, implemented across:
@@ -172,9 +179,13 @@ Set `LEVELS_DIR=/some/dir` to test edited copies of the level files.
   and editor save slots (documented at the top of `level_format.h`).
 - `src/self_test.h/.cpp`: headless self-test suite (`--self-test`).
 - `tools/level_lab.cpp`: level design/analysis tool (`make tools`).
+- `tools/make_font_atlas.py`: bakes `assets/fonts/ui.font` from a TTF (needs
+  Pillow; only required if you change the font).
 - `assets/levels/level_001.cfg` … `level_150.cfg`: the campaign (1–140) and
   Secret Vault (141–150) levels as editable text. Restart the game after
   editing; `--self-test` checks every level loads and settles stably.
+- `assets/fonts/`: the UI font atlas, baked from [Fredoka](https://github.com/hafontia/Fredoka-One)
+  (SIL Open Font License, see `Fredoka-OFL.txt`).
 - `assets/`: sprite, audio, and asset configuration files.
 - `Makefile` / `CMakeLists.txt`: Linux build definitions.
 - `CHANGELOG.md`: development history.
