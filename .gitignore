@@ -21,3 +21,6 @@
 *~
 /level_lab
 __pycache__/
+
+# Release artifacts
+/dist/

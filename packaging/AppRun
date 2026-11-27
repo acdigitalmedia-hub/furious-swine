@@ -1,0 +1,14 @@
+#!/bin/sh
+# AppImage entry point. The game reads assets/ and writes saves relative to its
+# working directory, so run it from a writable per-user data directory.
+HERE="$(dirname "$(readlink -f "$0")")"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/snout-and-siege"
+BUNDLE="$HERE/usr/share/snout-and-siege"
+
+mkdir -p "$DATA" || exit 1
+# Refresh bundled assets when this AppImage's release differs from the last one run.
+if ! cmp -s "$BUNDLE/release.txt" "$DATA/.release"; then
+    cp -rf "$BUNDLE/assets" "$DATA/" && chmod -R u+w "$DATA/assets" && cp "$BUNDLE/release.txt" "$DATA/.release"
+fi
+
+cd "$DATA" && exec "$HERE/usr/bin/furious_swine" "$@"

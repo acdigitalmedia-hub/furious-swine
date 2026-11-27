@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Snout & Siege: Rise of the Swine
+Comment=Role-reversed 2D physics artillery game
+Exec=furious_swine
+Icon=snout-and-siege
+Categories=Game;ActionGame;
+Terminal=false
